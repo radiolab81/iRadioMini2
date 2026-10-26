@@ -1,0 +1,7 @@
+#EXTM3U
+# Beispiel-Playlist fuer die SD-Karte (Dateiname: playlist.m3u im Hauptverzeichnis).
+# "#EXTINF:-1,Name" setzt den Anzeigenamen. Die URLs sind Beispiele und koennen sich aendern.
+#EXTINF:-1,SomaFM Groove Salad
+http://ice1.somafm.com/groovesalad-128-mp3
+#EXTINF:-1,Espressif Testton (MP3)
+https://dl.espressif.com/dl/audio/gs-16b-2c-44100hz.mp3

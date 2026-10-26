@@ -1,0 +1,6 @@
+# WLAN-Zugangsdaten (Dateiname: wifi.txt im Hauptverzeichnis der SD-Karte).
+# Beim ersten Start werden sie in den NVS-Speicher uebernommen; die Karte kann danach entfernt werden.
+network={
+    ssid="MeinWLAN"
+    psk="MeinPasswort"
+}
