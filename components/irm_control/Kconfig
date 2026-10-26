@@ -1,0 +1,23 @@
+menu "iRadioMini2: Steuerung"
+    config IRM_MAX_STATIONS
+        int "Maximale Anzahl Sender in playlist.m3u"
+        default 100
+        range 1 500
+    config IRM_MAX_MEDIA_FILES
+        int "Maximale Anzahl Mediendateien beim SD-Scan"
+        default 300
+        range 1 2000
+    config IRM_VOLUME_STEP
+        int "Lautstaerke-Schritt (%)"
+        default 3
+        range 1 20
+    config IRM_MEDIA_EXTENSIONS
+        string "Dateiendungen fuer den Mediaplayer"
+        default "mp3,aac,m4a,wav,flac"
+    config IRM_PERSIST_DELAY_MS
+        int "Verzoegerung bis Lautstaerke/Sender in NVS geschrieben werden (ms)"
+        default 3000
+    config IRM_RETRY_MAX_S
+        int "Maximales Wiederverbindungsintervall bei Streamfehlern (s)"
+        default 30
+endmenu

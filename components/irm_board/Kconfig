@@ -1,0 +1,189 @@
+menu "iRadioMini2: Board"
+
+    choice IRM_BOARD
+        prompt "Board"
+        default IRM_BOARD_AUDIOKIT
+        config IRM_BOARD_AUDIOKIT
+            bool "ESP32-A1S AudioKit (ES8388)"
+        config IRM_BOARD_CUSTOM
+            bool "Eigenes Board (Pins manuell)"
+    endchoice
+
+    choice IRM_OUTPUT
+        prompt "Audio-Ausgabe"
+        default IRM_OUT_CODEC
+        help
+            Boards ohne externen DAC koennen direkt vom ESP32 ausgeben (wie USE_INTERNAL_AUDIODAC in iRadioMini V1).
+            Die Lautstaerke wird dabei in Software geregelt; PDM und DAC werden zu Mono bzw. 8 Bit reduziert
+            und benoetigen extern Tiefpass/Verstaerker.
+        config IRM_OUT_CODEC
+            bool "I2S-Codec / externer I2S-DAC (ES8388, ES8311, PCM5102, MAX98357 ...)"
+        config IRM_OUT_PDM
+            bool "PDM auf einem GPIO (I2S0), Mono - RC-Tiefpass + Verstaerker extern"
+            depends on SOC_I2S_SUPPORTS_PDM_TX
+        config IRM_OUT_DAC
+            bool "Interner 8-Bit-DAC des ESP32 (GPIO25 / GPIO26)"
+            depends on SOC_DAC_SUPPORTED
+    endchoice
+
+    config IRM_PDM_DOUT
+        int "PDM-Datenpin"
+        depends on IRM_OUT_PDM
+        default 25
+    config IRM_PDM_CLK
+        int "PDM-Taktpin (-1 = ungenutzt)"
+        depends on IRM_OUT_PDM
+        default -1
+    config IRM_DAC_STEREO
+        bool "DAC Stereo (GPIO25 = links, GPIO26 = rechts); aus = Mono-Signal auf beiden Pins"
+        depends on IRM_OUT_DAC
+        default y
+
+    choice IRM_CODEC
+        prompt "Audio-Codec / DAC"
+        depends on IRM_OUT_CODEC
+        default IRM_CODEC_ES8388 if IRM_BOARD_AUDIOKIT
+        default IRM_CODEC_DUMMY
+        config IRM_CODEC_ES8388
+            bool "ES8388 (I2C-gesteuert)"
+        config IRM_CODEC_ES8311
+            bool "ES8311 (I2C-gesteuert)"
+        config IRM_CODEC_DUMMY
+            bool "Generischer I2S-DAC ohne Steuerbus (PCM5102, MAX98357, UDA1334 ...)"
+    endchoice
+
+    config IRM_ES8388_OUT_VOL
+        int "ES8388: Pegel der Ausgangsstufen LOUT1/ROUT1/LOUT2/ROUT2 (0..33; 30 = 0 dB, 33 = +4,5 dB)"
+        depends on IRM_CODEC_ES8388
+        default 30
+        range 0 33
+        help
+            Der esp_codec_dev-Treiber setzt LOUT1/ROUT1 auf 0 dB, LOUT2/ROUT2 aber auf -30 dB. Beim AudioKit haengen Lautsprecherverstaerker
+            und Kopfhoerer an unterschiedlichen Ausgangspaaren, ein Paar ist dann praktisch stumm. Dieser Wert gilt fuer alle vier Ausgaenge
+            (wie der ES8388-Patch des Altprojekts). Die eigentliche Lautstaerke regelt weiterhin die digitale DAC-Lautstaerke.
+
+    config IRM_HP_DETECT_GPIO
+        int "Kopfhoerer-Erkennung: GPIO (-1 = aus; AudioKit v2.2: 39, Eingang ohne internen Pull-up)"
+        depends on IRM_OUT_CODEC
+        default 39 if IRM_BOARD_AUDIOKIT
+        default -1
+        help
+            Bei jedem Wechsel wird der Pegel protokolliert ("Kopfhoerer-Erkennung: GPIO39=..."), so laesst sich die Polaritaet pruefen.
+    config IRM_HP_ACTIVE_LEVEL
+        int "Pegel bei eingestecktem Kopfhoerer (0 oder 1)"
+        depends on IRM_OUT_CODEC && IRM_HP_DETECT_GPIO >= 0
+        default 0
+        range 0 1
+    config IRM_HP_MUTE_SPEAKER
+        bool "Lautsprecher-Endstufe (PA-GPIO) bei erkanntem Kopfhoerer abschalten"
+        depends on IRM_OUT_CODEC && IRM_HP_DETECT_GPIO >= 0 && IRM_PA_GPIO >= 0
+        default n
+        help
+            Erst aktivieren, nachdem die Protokollzeile die richtige Polaritaet gezeigt hat; bei falschem Pegel bleibt sonst der Lautsprecher stumm.
+
+    config IRM_AUDIO_DMA_MS
+        int "Tiefe des Ausgabepuffers (I2S-/DAC-DMA) in ms"
+        default 100
+        range 30 400
+        help
+            Der Standardpuffer des I2S-Treibers (6 x 240 Frames) fasst nur 30 ms. Jede Verzoegerung der Pipeline darueber (SD-Karte, WLAN, HTTP-Server)
+            fuehrt zu hoerbaren Aussetzern. Der Puffer liegt im internen DMA-RAM: ca. 0,2 KiB je ms bei 48 kHz Stereo (100 ms = 19 KiB).
+
+    config IRM_AUDIO_OUT_RATE
+        int "Ausgabe-Samplerate (Hz); alle Streams werden darauf resampled"
+        default 48000
+        range 8000 96000
+
+    config IRM_I2C_SDA
+        int "Codec-I2C SDA"
+        depends on IRM_CODEC_ES8388 || IRM_CODEC_ES8311
+        default 33 if IRM_BOARD_AUDIOKIT
+        default 21
+    config IRM_I2C_SCL
+        int "Codec-I2C SCL"
+        depends on IRM_CODEC_ES8388 || IRM_CODEC_ES8311
+        default 32 if IRM_BOARD_AUDIOKIT
+        default 22
+    comment "I2C fuer I2C-Displays (SSD1306 / HD44780): eigener Bus wie im Altprojekt (dort I2C_NUM_1, GPIO21/22), unabhaengig vom Codec-Bus"
+    config IRM_DISP_I2C_SHARED
+        bool "Display am Codec-I2C-Bus betreiben (statt eigenem Bus)"
+        depends on IRM_OUT_CODEC && (IRM_CODEC_ES8388 || IRM_CODEC_ES8311)
+        default n
+        help
+            Nur sinnvoll, wenn die Codec-Busleitungen (IRM_I2C_SDA/SCL) herausgefuehrt sind. Beim AudioKit sind sie es nicht.
+    config IRM_DISP_I2C_PORT
+        int "Display-I2C Controller (0 oder 1)"
+        depends on !IRM_DISP_I2C_SHARED
+        default 1
+        range 0 1
+        help
+            Der ESP32 hat zwei I2C-Controller. Wie im Altprojekt (Codec: Controller 0, uebrige I2C-Geraete: Controller 1) bleibt der Codec
+            raeumlich getrennt auf Controller 0. Nur aendern, wenn kein I2C-Codec verwendet wird.
+    config IRM_DISP_I2C_SDA
+        int "Display-I2C SDA (eigener Bus)"
+        depends on !IRM_DISP_I2C_SHARED
+        default 21
+        help
+            Frei waehlbar; Kollisionen mit Onboard-Funktionen liegen in der Verantwortung des Nutzers. Hinweis AudioKit: GPIO21 ist dort auch der
+            Enable-Pin der Lautsprecher-Endstufe (IRM_PA_GPIO). Wird er als SDA verwendet, haelt der I2C-Pull-up die Endstufe aktiviert
+            (wie im Altprojekt); die Kopfhoerer-Abschaltung der Endstufe ist dann nicht nutzbar (wird automatisch uebersprungen).
+    config IRM_DISP_I2C_SCL
+        int "Display-I2C SCL (eigener Bus)"
+        depends on !IRM_DISP_I2C_SHARED
+        default 22
+
+    config IRM_I2S_MCLK
+        depends on IRM_OUT_CODEC
+        int "I2S MCLK (-1 = nicht genutzt)"
+        default 0 if IRM_BOARD_AUDIOKIT
+        default -1
+    config IRM_I2S_BCLK
+        depends on IRM_OUT_CODEC
+        int "I2S BCLK"
+        default 27 if IRM_BOARD_AUDIOKIT
+        default 26
+    config IRM_I2S_WS
+        depends on IRM_OUT_CODEC
+        int "I2S WS/LRCK"
+        default 25
+    config IRM_I2S_DOUT
+        depends on IRM_OUT_CODEC
+        int "I2S DOUT"
+        default 26 if IRM_BOARD_AUDIOKIT
+        default 22
+    config IRM_PA_GPIO
+        depends on IRM_OUT_CODEC
+        int "Endstufen-Enable-GPIO (-1 = keiner)"
+        default 21 if IRM_BOARD_AUDIOKIT
+        default -1
+
+    config IRM_SD_ENABLE
+        bool "SD-Karte einbinden (/sdcard)"
+        default y
+    choice IRM_SD_MODE
+        prompt "SD-Anbindung"
+        depends on IRM_SD_ENABLE
+        default IRM_SD_SDMMC_1BIT if IRM_BOARD_AUDIOKIT
+        default IRM_SD_SPI
+        config IRM_SD_SDMMC_1BIT
+            bool "SDMMC 1-Bit (CLK14 CMD15 D0=2)"
+        config IRM_SD_SPI
+            bool "SPI"
+    endchoice
+    config IRM_SD_SPI_MOSI
+        int "SD-SPI MOSI"
+        depends on IRM_SD_SPI
+        default 23
+    config IRM_SD_SPI_MISO
+        int "SD-SPI MISO"
+        depends on IRM_SD_SPI
+        default 19
+    config IRM_SD_SPI_SCLK
+        int "SD-SPI SCLK"
+        depends on IRM_SD_SPI
+        default 18
+    config IRM_SD_SPI_CS
+        int "SD-SPI CS"
+        depends on IRM_SD_SPI
+        default 5
+endmenu
