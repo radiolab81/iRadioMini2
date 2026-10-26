@@ -1,0 +1,5 @@
+dependencies:
+  # ESP-GMF ist der offizielle Nachfolger der ADF-v2-Pipeline (ADF v3 baut selbst darauf auf).
+  espressif/gmf_core:  "^1.0"
+  espressif/gmf_audio: "^1.0"
+  espressif/gmf_io:    "^1.0"

@@ -1,0 +1,50 @@
+menu "iRadioMini2: Audio"
+    config IRM_AUDIO_TASK_STACK
+        int "Pipeline-Task Stack (Byte)"
+        default 8192
+        help
+            TLS-Handshakes (https-Streams) benoetigen >= 8 KiB.
+    config IRM_AUDIO_TASK_CORE
+        int "Pipeline-Task Core"
+        default 1
+        range 0 1
+    config IRM_AUDIO_TASK_PRIO
+        int "Pipeline-Task Prioritaet"
+        default 10
+        range 5 20
+        help
+            Der GMF-Standard ist 5 und damit gleich dem HTTP-Server (Web-UI): Anfragen der Web-Oberflaeche konkurrieren dann mit dem Decoder.
+            10 liegt ueber HTTP-Server, Steuerung und Anzeige, aber unter WLAN- und TCP/IP-Tasks.
+    config IRM_FILE_PREFETCH_KB
+        int "Vorlese-Puffer fuer Dateien von der SD-Karte (KiB, 0 = aus)"
+        default 32
+        range 0 256
+        help
+            Eigene Lese-Task mit Ringpuffer. Ohne Vorlesen wirken sich Verzoegerungen der SD-Karte (FAT-Zugriffe, interne Karten-Arbeit)
+            direkt als Aussetzer aus.
+    config IRM_AUDIO_STATS_S
+        int "Audio-Statistik im Log alle n Sekunden (0 = aus)"
+        default 10
+        range 0 120
+        help
+            Zeigt, wie viel der Echtzeit die Kette (Lesen, Decodieren, Umsetzen) belegt, und warnt sofort, wenn sie laenger ausbleibt als der Ausgabepuffer fasst.
+    config IRM_PRE_GAIN_DB
+        int "Pegelreserve vor Equalizer/Ausgabe (dB, 0 = aus, z. B. -3 oder -6)"
+        default 0
+        range -24 0
+        help
+            Laute Aufnahmen koennen die Ausgabe (Digital- oder Analogteil) uebersteuern, hoerbar als kurze Knackser/"Britzel". Ein Wert von -3 bis -6 dB
+            schafft Reserve; die Lautstaerke wird ueber den Regler entsprechend hoeher gestellt. Dient auch als Testschalter zur Eingrenzung.
+    config IRM_EQ_Q
+        int "EQ-Guete Q (x100)"
+        default 141
+        help
+            Oktavbreite Peak-Filter: Q ~ 1.41
+    config IRM_HTTP_TIMEOUT_MS
+        int "HTTP-Timeout beim Verbinden/Lesen (ms)"
+        default 10000
+        range 2000 60000
+        help
+            Die ESP-GMF-HTTP-Schicht verwendet fest 30 s. Ein kuerzerer Wert beschleunigt Wiederverbindung und Senderwechsel
+            bei nicht erreichbaren Servern (der Senderwechsel wartet, bis die laufende Verbindungsaufnahme beendet ist).
+endmenu
