@@ -1,6 +1,6 @@
 # iRadioMini2
 
-Baukasten für ESP32-Internetradios auf **ESP-IDF 6.1** – Neuaufbau von iRadioMini (ESP-IDF 4.x / ESP-ADF 2.x).
+Baukasten für ESP32-Internetradios auf **ESP-IDF 6.1** – Neuaufbau von iRadioMini (ESP-IDF 4.x / ESP-ADF 2.x https://github.com/radiolab81/iRadioMin).
 Streaming (HTTP/HTTPS, MP3/AAC/…), Mediaplayer von SD-Karte, 10-Band-Equalizer, Web-UI/REST-API,
 Taster und Drehgeber, austauschbare Anzeige-Backends.
 
