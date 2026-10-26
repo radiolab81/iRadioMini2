@@ -1,0 +1,13 @@
+dependencies:
+  lvgl/lvgl:
+    version: "~9.5.0"
+    rules:
+      - if: "$CONFIG{IRM_DEP_LVGL} == 1"
+  espressif/esp_lvgl_port:
+    version: "^2"
+    rules:
+      - if: "$CONFIG{IRM_DEP_LVGL} == 1"
+  espressif/esp_lcd_ili9341:
+    version: "^2"
+    rules:
+      - if: "$CONFIG{IRM_DEP_ILI9341} == 1"

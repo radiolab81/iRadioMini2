@@ -1,0 +1,6 @@
+dependencies:
+  u8g2:
+    git: https://github.com/olikraus/u8g2.git
+    version: "2.37.1"
+    rules:
+      - if: "$CONFIG{IRM_DEP_U8G2} == 1"

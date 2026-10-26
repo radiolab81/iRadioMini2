@@ -1,0 +1,64 @@
+menu "iRadioMini2: Anzeige"
+    choice IRM_DISPLAY
+        prompt "Anzeige-Backend"
+        default IRM_DISPLAY_NONE
+        config IRM_DISPLAY_NONE
+            bool "keine"
+        config IRM_DISPLAY_SSD1306
+            bool "OLED SSD1306 128x64/128x32 (I2C, u8g2)"
+        config IRM_DISPLAY_HD44780
+            bool "Zeichen-LCD HD44780 mit PCF8574-I2C-Adapter"
+        config IRM_DISPLAY_SERVO
+            bool "Servo-Zeiger (Senderskala)"
+        config IRM_DISPLAY_LVGL
+            bool "LVGL-Farbdisplay (ILI9341/ST7789, SPI) mit Skins"
+    endchoice
+
+    config IRM_DISPLAY_I2C_ADDR
+        hex "I2C-Adresse (7 Bit)"
+        depends on IRM_DISPLAY_SSD1306 || IRM_DISPLAY_HD44780
+        default 0x3C if IRM_DISPLAY_SSD1306
+        default 0x27
+    config IRM_DISPLAY_SSD1306_HEIGHT
+        int "OLED-Hoehe (32 oder 64)"
+        depends on IRM_DISPLAY_SSD1306
+        default 64
+        range 32 64
+    config IRM_DISPLAY_LCD_COLS
+        int "LCD Spalten"
+        depends on IRM_DISPLAY_HD44780
+        default 16
+        range 8 40
+    config IRM_DISPLAY_LCD_ROWS
+        int "LCD Zeilen"
+        depends on IRM_DISPLAY_HD44780
+        default 2
+        range 1 4
+    config IRM_SERVO_GPIO
+        int "Servo-GPIO"
+        depends on IRM_DISPLAY_SERVO
+        default 13
+    config IRM_SERVO_MIN_US
+        int "Impulsbreite Anschlag links (us)"
+        depends on IRM_DISPLAY_SERVO
+        default 600
+    config IRM_SERVO_MAX_US
+        int "Impulsbreite Anschlag rechts (us)"
+        depends on IRM_DISPLAY_SERVO
+        default 2300
+
+    # Versteckte Schalter fuer die Abhaengigkeitsregeln der idf_component.yml. Als int (0/1), weil abgeschaltete Bool-Optionen
+    # in sdkconfig.json fehlen (das loest im Component Manager "Missing kconfig option" aus); int-Werte sind immer vorhanden.
+    config IRM_DEP_U8G2
+        int
+        default 1 if IRM_DISPLAY_SSD1306
+        default 0
+    config IRM_DEP_LVGL
+        int
+        default 1 if IRM_DISPLAY_LVGL
+        default 0
+    config IRM_DEP_ILI9341
+        int
+        default 1 if IRM_DISPLAY_LVGL && IRM_LCD_ILI9341
+        default 0
+endmenu

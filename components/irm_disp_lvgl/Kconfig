@@ -1,0 +1,77 @@
+menu "iRadioMini2: LVGL-Display"
+    depends on IRM_DISPLAY_LVGL
+
+    choice IRM_LCD_PANEL
+        prompt "Display-Controller (SPI)"
+        default IRM_LCD_ILI9341
+        config IRM_LCD_ILI9341
+            bool "ILI9341 (240x320)"
+        config IRM_LCD_ST7789
+            bool "ST7789"
+    endchoice
+
+    choice IRM_LVGL_SKIN
+        prompt "Skin"
+        default IRM_LVGL_SKIN_LINEAR
+        config IRM_LVGL_SKIN_BASIC
+            bool "Basis: Programmnummer, Name, Vor/Zurueck-Tasten (Touch)"
+        config IRM_LVGL_SKIN_LINEAR
+            bool "Skalensimulation: Zeiger auf linearer Senderskala"
+        config IRM_LVGL_SKIN_ROUND
+            bool "Rundskala (Mende 148): Zeiger dreht ueber Halbkreisskala"
+        config IRM_LVGL_SKIN_CASSETTE
+            bool "Kassettenspieler: drehende Spulen"
+    endchoice
+
+    config IRM_LCD_H_RES
+        int "Horizontale Aufloesung (nach Rotation)"
+        default 320
+    config IRM_LCD_V_RES
+        int "Vertikale Aufloesung (nach Rotation)"
+        default 240
+    config IRM_LCD_SWAP_XY
+        bool "X/Y tauschen (Querformat bei 240x320-Panels)"
+        default y
+    config IRM_LCD_MIRROR_X
+        bool "X spiegeln"
+        default y
+    config IRM_LCD_MIRROR_Y
+        bool "Y spiegeln"
+        default n
+    config IRM_LCD_BGR
+        bool "Farbreihenfolge BGR"
+        default y
+    config IRM_LCD_INVERT
+        bool "Farben invertieren (ST7789 oft noetig)"
+        default n
+
+    config IRM_LCD_SPI_HOST
+        int "SPI-Host (1 = SPI2/HSPI, 2 = SPI3/VSPI)"
+        default 1
+        range 1 2
+    config IRM_LCD_SPI_MHZ
+        int "SPI-Takt (MHz); ueber GPIO-Matrix <= 26 sinnvoll"
+        default 20
+    config IRM_LCD_SCLK
+        int "SCLK-GPIO"
+        default 19
+    config IRM_LCD_MOSI
+        int "MOSI-GPIO"
+        default 13
+    config IRM_LCD_CS
+        int "CS-GPIO"
+        default 22
+    config IRM_LCD_DC
+        int "DC-GPIO"
+        default 4
+    config IRM_LCD_RST
+        int "RESET-GPIO (-1 = keiner)"
+        default 16
+    config IRM_LCD_BL
+        int "Hintergrundbeleuchtung-GPIO, high-aktiv (-1 = keiner)"
+        default 17
+    config IRM_LCD_BUF_LINES
+        int "Zeilen je LVGL-Teilpuffer (zwei Puffer im DMA-RAM)"
+        default 20
+        range 5 60
+endmenu
