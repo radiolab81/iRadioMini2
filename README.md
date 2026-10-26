@@ -12,6 +12,7 @@ idf.py set-target esp32
 idf.py menuconfig                # Menü "iRadioMini2: ..." (Board, Pins, Display, WLAN-Fallback, Web)
 idf.py build flash monitor
 ```
+![menucfg](https://github.com/radiolab81/iRadioMini2/blob/main/docs/images/irm2_Settings.png)
 
 Abhängigkeiten (ESP-GMF, `esp_codec_dev`, `cjson`, bei Bedarf `u8g2` bzw. LVGL) lädt der Component Manager automatisch.
 Display-spezifische Pakete werden nur geladen, wenn die Anzeige in `menuconfig` gewählt ist. Nach dem Wechsel der Anzeige normalerweise
@@ -43,6 +44,7 @@ Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setze
 | `irm_tx` | optionaler AM-Träger (AD9835/AD9832/AD9850/LEDC) + inet2RF-Senderwahl | irm_core |
 
 Dokumentation: [Architektur](docs/ARCHITECTURE.md) · [Komponenten-Referenz](docs/COMPONENTS.md) · [LVGL-Anzeige](docs/LVGL.md) · [AM-Sender/inet2RF](docs/RF-TX.md) · [Migration vom Altprojekt](docs/MIGRATION.md) · 
+
 
 ## Audio-Ausgabe (auch ohne externen DAC)
 
