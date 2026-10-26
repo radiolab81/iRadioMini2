@@ -1,0 +1,2 @@
+dependencies:
+  espressif/cjson: "^1.7.19"   # 'json' wurde in IDF 6.0 aus dem Kern entfernt

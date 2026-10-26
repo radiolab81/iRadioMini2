@@ -1,0 +1,77 @@
+menu "iRadioMini2: AM-Sender (RF)"
+    config IRM_TX_ENABLE
+        bool "AM-Kleinsender aktivieren (DDS/LEDC-Traeger)"
+        default n
+        help
+            Erzeugt einen Traeger im Mittelwellenband, auf den das NF-Signal des Radios (Codec-Ausgang)
+            ueber eine externe Modulatorstufe aufmoduliert wird. Sendeleistung und Antenne muessen den
+            geltenden Vorschriften entsprechen (in Deutschland: nur extrem schwache, nicht genehmigungspflichtige
+            Aussendungen; im Zweifel nur Leitungs-/Kabeleinspeisung oder abgeschirmte Aufbauten).
+
+    choice IRM_TX_DRIVER
+        prompt "Traegererzeugung"
+        depends on IRM_TX_ENABLE
+        default IRM_TX_AD9835
+        config IRM_TX_AD9835
+            bool "AD9835 (DDS, 50 MHz Takt)"
+        config IRM_TX_AD9832
+            bool "AD9832 (DDS, 25 MHz Takt)"
+        config IRM_TX_AD9850
+            bool "AD9850 (DDS, 125 MHz Takt)"
+        config IRM_TX_LEDC
+            bool "ESP32-intern (LEDC-Rechteck)"
+    endchoice
+
+    config IRM_TX_CARRIER_KHZ
+        int "Standard-Traegerfrequenz (kHz); /sdcard/AM.txt ueberschreibt"
+        depends on IRM_TX_ENABLE
+        default 1000
+        range 100 30000
+    config IRM_TX_DDS_MCLK_HZ
+        int "DDS-Referenztakt (Hz)"
+        depends on IRM_TX_ENABLE && !IRM_TX_LEDC
+        default 125000000 if IRM_TX_AD9850
+        default 25000000 if IRM_TX_AD9832
+        default 50000000
+
+    config IRM_TX_PIN_A
+        int "AD983x: FSYNC | AD9850: RESET | LEDC: Ausgang"
+        depends on IRM_TX_ENABLE
+        default 17
+    config IRM_TX_PIN_B
+        int "AD983x: SCLK | AD9850: FQ_UD"
+        depends on IRM_TX_ENABLE && !IRM_TX_LEDC
+        default 16
+    config IRM_TX_PIN_C
+        int "AD983x: SDATA | AD9850: W_CLK"
+        depends on IRM_TX_ENABLE && !IRM_TX_LEDC
+        default 4
+    config IRM_TX_PIN_D
+        int "AD9850: DATA"
+        depends on IRM_TX_ENABLE && IRM_TX_AD9850
+        default 12
+
+    config IRM_INET2RF
+        bool "inet2RF: Senderwahl ueber Drehkondensator/Oszillator eines Analogradios"
+        depends on IRM_TX_ENABLE
+        default n
+        help
+            Misst die Oszillatorfrequenz (PCNT) eines handelsueblichen AM-Radios, leitet daraus die
+            eingestellte Skalenposition ab, waehlt den passenden Sender und setzt den Traeger auf diese Frequenz.
+    config IRM_INET2RF_GPIO
+        int "Frequenzeingang (Oszillatorsignal, 3,3 V!)"
+        depends on IRM_INET2RF
+        default 19
+    config IRM_INET2RF_IF_KHZ
+        int "Zwischenfrequenz (kHz); f_Oszillator = f_Empfang + ZF (z. B. 455)"
+        depends on IRM_INET2RF
+        default 0
+    config IRM_INET2RF_MIN_KHZ
+        int "Untere Bandgrenze (kHz)"
+        depends on IRM_INET2RF
+        default 526
+    config IRM_INET2RF_MAX_KHZ
+        int "Obere Bandgrenze (kHz)"
+        depends on IRM_INET2RF
+        default 1606
+endmenu

@@ -1,0 +1,14 @@
+menu "iRadioMini2: Web-Oberflaeche"
+    config IRM_WEB_PORT
+        int "HTTP-Port"
+        default 80
+    config IRM_WEB_USER
+        string "Benutzername (HTTP Basic Auth)"
+        default "radio"
+    config IRM_WEB_PASSWORD
+        string "Passwort (leer = keine Authentifizierung)"
+        default ""
+        help
+            Ohne Passwort kann jeder im selben Netz das Radio steuern. HTTP Basic ist unverschluesselt;
+            fuer Schutz vor Mitlesern im LAN waere HTTPS (esp_https_server) noetig.
+endmenu

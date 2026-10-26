@@ -1,0 +1,50 @@
+menu "iRadioMini2: Eingabe"
+    comment "GPIO-Nummern; -1 = Taster nicht vorhanden. Taster schalten gegen GND (active low)."
+    config IRM_BTN_PLAY
+        int "Taster Play/Pause (lang: Radio <-> Mediaplayer)"
+        default 23
+        range -1 39
+    config IRM_BTN_NEXT
+        int "Taster Naechster"
+        default 18
+        range -1 39
+    config IRM_BTN_PREV
+        int "Taster Vorheriger"
+        default 5
+        range -1 39
+    config IRM_BTN_VOL_UP
+        int "Taster Lauter (haltbar = Wiederholung)"
+        default -1
+        range -1 39
+    config IRM_BTN_VOL_DOWN
+        int "Taster Leiser (haltbar = Wiederholung)"
+        default -1
+        range -1 39
+    config IRM_BTN_LONG_MS
+        int "Langer Tastendruck ab (ms)"
+        default 800
+    config IRM_BTN_REPEAT_MS
+        int "Wiederholrate Lautstaerketasten (ms)"
+        default 150
+
+    config IRM_ROTARY_A
+        int "Drehgeber Pin A (-1 = kein Drehgeber)"
+        default -1
+        range -1 39
+    config IRM_ROTARY_B
+        int "Drehgeber Pin B"
+        default -1
+        range -1 39
+    config IRM_ROTARY_COUNTS_PER_STEP
+        int "PCNT-Zaehlimpulse pro Raste"
+        default 4
+        range 1 8
+    choice IRM_ROTARY_FUNCTION
+        prompt "Drehgeber-Funktion"
+        default IRM_ROTARY_VOLUME
+        config IRM_ROTARY_VOLUME
+            bool "Lautstaerke"
+        config IRM_ROTARY_STATION
+            bool "Sender/Titel"
+    endchoice
+endmenu
