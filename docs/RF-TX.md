@@ -29,4 +29,3 @@ Eingang: 3,3-V-Signal, Pegel ggf. über Spannungsteiler/Komparator anpassen.
 ## Änderungen gegenüber dem Altprojekt
 Neue PCNT-API (Legacy-ISR-Zählung entfällt; Überlauf-Akkumulation im Treiber), Treiber nicht mehr per Symbolkollision, Bit-Schieben als Schleife,
 pro Treiber konfigurierbare Pins/Takte statt `#define`, Kommando statt Queue-Zeiger an den Player, AD9850-Zeitverhalten ohne `vTaskDelay` je Taktflanke.
-Nicht hardwaregetestet.
