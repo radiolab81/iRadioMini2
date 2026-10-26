@@ -106,7 +106,6 @@ gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_pcm.c test/test
 
 * Verifiziert wurde: Build unter ESP-IDF v6.1 (Ziel ESP32) für die Konfigurationen
   SSD1306 / HD44780 / Servo / LVGL (alle vier Skins, ILI9341 und ST7789), alle Träger-Treiber und inet2RF sowie die Ausgaben Codec, PDM und interner DAC (Stereo/Mono); dazu die Host-Tests der Parser.
-  Die Abhängigkeiten wurden dabei aus lokalen Klonen eingebunden (Registry in der Entwicklungsumgebung gesperrt) – der erste Build mit echtem
-  Component-Manager-Lauf (`idf.py build` mit Internetzugang) steht aus; Versionsbereiche siehe `idf_component.yml` der Komponenten.
-* Ausgabe: I²S-Codec (ES8388, ES8311), generischer I²S-DAC, **PDM auf einem GPIO** oder **interner 8-Bit-DAC** (GPIO25/26) – siehe Abschnitt „Audio-Ausgabe“. Bluetooth des Altprojekts entfällt.
+  Die Abhängigkeiten wurden dabei aus Component-Manager(`idf.py build` mit Internetzugang) eingebunden; Versionsbereiche siehe `idf_component.yml` der Komponenten.
+* Ausgabe: I²S-Codec (ES8388, ES8311), generischer I²S-DAC, **PDM auf einem GPIO** oder **interner 8-Bit-DAC** (GPIO25/26) – siehe Abschnitt „Audio-Ausgabe“. 
 * Der AM-Sender ist standardmäßig deaktiviert und unterliegt nationalen Funkvorschriften (`docs/RF-TX.md`).
