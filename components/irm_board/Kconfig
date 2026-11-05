@@ -39,6 +39,15 @@ menu "iRadioMini2: Board"
         depends on IRM_OUT_DAC
         default y
 
+    config IRM_DAC_NS_ORDER
+        int "DAC Noise-Shaping-Ordnung (0 = aus, 1, 2)"
+        range 0 2
+        default 1
+        depends on IRM_OUT_DAC
+        help
+          Fehlerrueckkopplung bei der 16->8-Bit-Wandlung. Schiebt das Quantisierungsrauschen
+          zu hohen Frequenzen. 0 = nur runden, 1 = sanft, 2 = staerker (mehr Rauschen oberhalb 10 kHz).
+
     choice IRM_CODEC
         prompt "Audio-Codec / DAC"
         depends on IRM_OUT_CODEC
