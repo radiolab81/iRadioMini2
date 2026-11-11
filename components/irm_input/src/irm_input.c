@@ -69,6 +69,14 @@ static void step_rotary(void)
 #if CONFIG_IRM_ROTARY_VOLUME
         irm_cmd_post_id(steps > 0 ? IRM_CMD_VOLUME_UP : IRM_CMD_VOLUME_DOWN, 0);
 #else
+#if CONFIG_IRM_KIWI_ENABLE && CONFIG_IRM_KIWI_ROTARY_TUNES
+        irm_status_t st;
+        irm_status_get(&st);
+        if (st.source == IRM_SOURCE_KIWI) {   /* KiwiSDR: Drehen stimmt ab, die Tasten Next/Prev schalten Eintraege */
+            irm_cmd_post_id(IRM_CMD_KIWI_STEP, steps > 0 ? CONFIG_IRM_KIWI_TUNE_STEP_HZ : -CONFIG_IRM_KIWI_TUNE_STEP_HZ);
+            continue;
+        }
+#endif
         irm_cmd_post_id(steps > 0 ? IRM_CMD_NEXT : IRM_CMD_PREV, 0);
 #endif
     }
