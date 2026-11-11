@@ -9,6 +9,7 @@ extern "C" {
 typedef struct {
     uint8_t  volume;
     int32_t  station;
+    int32_t  kiwi_station;   /* zuletzt gehoerter KiwiSDR-Eintrag */
     irm_eq_t eq;
     bool     has_eq;
 } irm_settings_t;
@@ -17,6 +18,7 @@ esp_err_t irm_settings_init(void);   /* nvs_flash_init inkl. Erase bei Versionsk
 esp_err_t irm_settings_load(irm_settings_t *out);   /* fehlende Werte -> Defaults */
 esp_err_t irm_settings_save_volume(uint8_t v);
 esp_err_t irm_settings_save_station(int32_t idx);
+esp_err_t irm_settings_save_kiwi_station(int32_t idx);
 esp_err_t irm_settings_save_eq(const irm_eq_t *eq);
 esp_err_t irm_settings_load_wifi(char *ssid, size_t ssid_sz, char *psk, size_t psk_sz);
 esp_err_t irm_settings_save_wifi(const char *ssid, const char *psk);

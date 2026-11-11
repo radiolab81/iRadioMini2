@@ -1,0 +1,12 @@
+/* Host-Test: Werte wie die Kconfig-Vorgaben, ausser Mindestabstand/Statistik (fuer kuerzere Testlaufzeit) */
+#define CONFIG_IRM_KIWI_ENABLE 1
+#define CONFIG_IRM_KIWI_USER_NAME "irm-host-test"
+#define CONFIG_IRM_KIWI_GAIN_DB 6
+#define CONFIG_IRM_KIWI_BUFFER_MS 1000
+#define CONFIG_IRM_KIWI_PREBUFFER_MS 400
+#define CONFIG_IRM_KIWI_CONNECT_TIMEOUT_MS 3000
+#define CONFIG_IRM_KIWI_MIN_RECONNECT_S 2
+#define CONFIG_IRM_KIWI_NET_TASK_PRIO 7
+#define CONFIG_IRM_KIWI_OUT_TASK_PRIO 10
+#define CONFIG_IRM_KIWI_OUT_TASK_CORE 1
+#define CONFIG_IRM_KIWI_STATS_S 3

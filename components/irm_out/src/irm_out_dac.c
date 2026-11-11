@@ -13,6 +13,12 @@
 #include "esp_log.h"
 #include "soc/soc_caps.h"
 #include "sdkconfig.h"
+
+/* IRM_DAC_NS_ORDER existiert in der Kconfig nur bei IRM_OUT_DAC; diese Datei wird aber immer mitkompiliert (CMake-Liste ist nicht bedingt).
+ * Fallback = Kconfig-Vorgabe, damit Builds mit Codec-/PDM-Ausgang nicht scheitern. Bei aktivem DAC gilt der Wert aus der Kconfig. */
+#ifndef CONFIG_IRM_DAC_NS_ORDER
+#define CONFIG_IRM_DAC_NS_ORDER 1
+#endif
 #include "irm_out.h"
 #include "irm_pcm.h"
 

@@ -6,6 +6,7 @@
 #include "sdkconfig.h"
 #include "irm_control.h"
 #include "irm_core.h"
+#include "irm_kiwi_uri.h"
 #include "irm_web.h"
 
 static const char *TAG = "irm_web";
@@ -75,7 +76,7 @@ static esp_err_t h_status(httpd_req_t *req)
     static const char *const ps[] = { "idle", "connecting", "playing", "paused", "error" };
     irm_status_t s; irm_status_get(&s);
     cJSON *j = cJSON_CreateObject();
-    cJSON_AddStringToObject(j, "source", s.source == IRM_SOURCE_RADIO ? "radio" : "media");
+    cJSON_AddStringToObject(j, "source", s.source == IRM_SOURCE_RADIO ? "radio" : (s.source == IRM_SOURCE_KIWI ? "kiwi" : "media"));
     cJSON_AddStringToObject(j, "player", ps[s.player <= IRM_PLAYER_ERROR ? s.player : 0]);
     cJSON_AddNumberToObject(j, "index", s.index);
     cJSON_AddNumberToObject(j, "count", s.count);
@@ -86,6 +87,14 @@ static esp_err_t h_status(httpd_req_t *req)
     cJSON_AddNumberToObject(j, "bitrate", s.bitrate);
     cJSON *eq = cJSON_AddArrayToObject(j, "eq");
     for (int i = 0; i < IRM_EQ_BANDS; i++) cJSON_AddItemToArray(eq, cJSON_CreateNumber(s.eq.gain_db[i]));
+    if (s.source == IRM_SOURCE_KIWI) {   /* Abstimmung: Frequenz in Hz, Modus, Feldstaerke (nur wenn bekannt) und die Modus-Tabelle */
+        cJSON *k = cJSON_AddObjectToObject(j, "kiwi");
+        cJSON_AddNumberToObject(k, "freq_hz", s.kiwi_freq_hz);
+        cJSON_AddStringToObject(k, "mode", s.kiwi_mode);
+        if (s.kiwi_rssi_dbm != IRM_RSSI_NONE) cJSON_AddNumberToObject(k, "rssi_dbm", s.kiwi_rssi_dbm);
+        cJSON *m = cJSON_AddArrayToObject(k, "modes");
+        for (size_t i = 0; i < irm_kiwi_mode_count(); i++) cJSON_AddItemToArray(m, cJSON_CreateString(irm_kiwi_mode_name(i)));
+    }
     return send_json(req, j);
 }
 
@@ -108,6 +117,9 @@ static const struct { const char *name; irm_cmd_id_t id; } k_cmds[] = {
     { "toggle", IRM_CMD_TOGGLE_PAUSE }, { "stop", IRM_CMD_STOP }, { "vol_up", IRM_CMD_VOLUME_UP },
     { "vol_down", IRM_CMD_VOLUME_DOWN }, { "volume", IRM_CMD_SET_VOLUME }, { "goto", IRM_CMD_GOTO },
     { "source", IRM_CMD_SET_SOURCE }, { "toggle_source", IRM_CMD_TOGGLE_SOURCE },
+    { "kiwi_tune", IRM_CMD_KIWI_TUNE },   /* value = Hz */
+    { "kiwi_step", IRM_CMD_KIWI_STEP },   /* value = +-Hz */
+    { "kiwi_mode", IRM_CMD_KIWI_MODE },   /* value = Index, oder "mode":"usb" */
 };
 
 static esp_err_t h_cmd(httpd_req_t *req)
@@ -116,11 +128,22 @@ static esp_err_t h_cmd(httpd_req_t *req)
     cJSON *j = read_json(req);
     const cJSON *c = j ? cJSON_GetObjectItemCaseSensitive(j, "cmd") : NULL;
     const cJSON *v = j ? cJSON_GetObjectItemCaseSensitive(j, "value") : NULL;
+    const cJSON *mo = j ? cJSON_GetObjectItemCaseSensitive(j, "mode") : NULL;
     esp_err_t e = ESP_ERR_NOT_FOUND;
     if (cJSON_IsString(c)) {
         for (size_t i = 0; i < sizeof(k_cmds) / sizeof(k_cmds[0]); i++) {
             if (strcmp(c->valuestring, k_cmds[i].name) == 0) {
-                e = irm_cmd_post_id(k_cmds[i].id, cJSON_IsNumber(v) ? (int32_t)v->valuedouble : 0);
+                int32_t val = cJSON_IsNumber(v) ? (int32_t)v->valuedouble : 0;
+                if (k_cmds[i].id == IRM_CMD_KIWI_MODE && !cJSON_IsNumber(v) && !cJSON_IsString(mo)) val = -1;   /* ohne Angabe: naechster Modus */
+                if (k_cmds[i].id == IRM_CMD_KIWI_MODE && cJSON_IsString(mo)) {
+                    val = irm_kiwi_mode_index(mo->valuestring);
+                    if (val < 0) { cJSON_Delete(j); return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unbekannter Modus"); }
+                }
+                if (k_cmds[i].id == IRM_CMD_KIWI_TUNE && (!cJSON_IsNumber(v) || v->valuedouble < 1 || v->valuedouble > 2e9)) {
+                    cJSON_Delete(j);
+                    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kiwi_tune: value = Frequenz in Hz");
+                }
+                e = irm_cmd_post_id(k_cmds[i].id, val);
                 break;
             }
         }

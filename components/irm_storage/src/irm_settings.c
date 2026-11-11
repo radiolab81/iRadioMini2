@@ -20,13 +20,14 @@ esp_err_t irm_settings_init(void)
 esp_err_t irm_settings_load(irm_settings_t *o)
 {
     memset(o, 0, sizeof(*o));
-    o->volume = 30; o->station = 0;
+    o->volume = 30; o->station = 0; o->kiwi_station = 0;
     nvs_handle_t h;
     esp_err_t e = nvs_open(NS, NVS_READONLY, &h);
     if (e != ESP_OK) return ESP_OK;  /* erster Start: Defaults */
     uint8_t v;
     if (nvs_get_u8(h, "vol", &v) == ESP_OK && v <= 100) o->volume = v;
     nvs_get_i32(h, "stn", &o->station);
+    nvs_get_i32(h, "kws", &o->kiwi_station);
     size_t sz = sizeof(o->eq);
     if (nvs_get_blob(h, "eq", &o->eq, &sz) == ESP_OK && sz == sizeof(o->eq)) o->has_eq = true;
     nvs_close(h);
@@ -46,10 +47,12 @@ static esp_err_t with_nvs(esp_err_t (*fn)(nvs_handle_t, const void *), const voi
 }
 static esp_err_t f_vol(nvs_handle_t h, const void *a) { return nvs_set_u8(h, "vol", *(const uint8_t *)a); }
 static esp_err_t f_stn(nvs_handle_t h, const void *a) { return nvs_set_i32(h, "stn", *(const int32_t *)a); }
+static esp_err_t f_kws(nvs_handle_t h, const void *a) { return nvs_set_i32(h, "kws", *(const int32_t *)a); }
 static esp_err_t f_eq(nvs_handle_t h, const void *a) { return nvs_set_blob(h, "eq", a, sizeof(irm_eq_t)); }
 
 esp_err_t irm_settings_save_volume(uint8_t v) { return with_nvs(f_vol, &v); }
 esp_err_t irm_settings_save_station(int32_t i) { return with_nvs(f_stn, &i); }
+esp_err_t irm_settings_save_kiwi_station(int32_t i) { return with_nvs(f_kws, &i); }
 esp_err_t irm_settings_save_eq(const irm_eq_t *eq) { return with_nvs(f_eq, eq); }
 
 esp_err_t irm_settings_load_wifi(char *ssid, size_t ssid_sz, char *psk, size_t psk_sz)

@@ -1,0 +1,108 @@
+menu "iRadioMini2 KiwiSDR (irm_kiwi)"
+
+    config IRM_KIWI_ENABLE
+        bool "KiwiSDR als dritte Quelle (neben Radio und Medien)"
+        default y
+        help
+            Hoert KiwiSDR-Empfaenger (ws://, Port meist 8073) ueber die vorhandene Ausgabesenke. Eintraege stehen in /sdcard/kiwi.m3u
+            (siehe docs/KIWI.md). Kostet ca. 40 KB Flash und waehrend der Wiedergabe ca. 40 KB RAM.
+
+    config IRM_KIWI_DEFAULT_URI
+        string "Vorgabe-Eintrag, wenn keine kiwi.m3u vorhanden ist"
+        depends on IRM_KIWI_ENABLE
+        default ""
+        help
+            z. B. kiwi://kiwi.example.org:8073/?f=7055.5usb  (leer = Quelle nur mit kiwi.m3u verfuegbar).
+
+    config IRM_KIWI_MAX_PRESETS
+        int "Maximale Zahl Eintraege in kiwi.m3u"
+        depends on IRM_KIWI_ENABLE
+        range 1 200
+        default 32
+
+    config IRM_KIWI_USER_NAME
+        string "Benutzername, der in der Nutzerliste des Kiwi erscheint"
+        depends on IRM_KIWI_ENABLE
+        default "iRadioMini2"
+
+    config IRM_KIWI_ADPCM
+        bool "IMA-ADPCM anfordern (ca. 1/4 Datenrate)"
+        depends on IRM_KIWI_ENABLE
+        default n
+        help
+            Rohes PCM braucht ca. 24 kByte/s, ADPCM ca. 6 kByte/s. Nur bei schwachem WLAN sinnvoll; nicht jeder Server liefert es sauber.
+
+    config IRM_KIWI_GAIN_DB
+        int "Zusaetzliche Verstaerkung der Kiwi-Audiodaten (dB)"
+        depends on IRM_KIWI_ENABLE
+        range 0 18
+        default 6
+        help
+            Kiwi-Audio ist oft leiser als Musik/Radio. Wird vor der Lautstaerkeregelung angewendet und hart begrenzt.
+
+    config IRM_KIWI_BUFFER_MS
+        int "Jitterpuffer gesamt (ms)"
+        depends on IRM_KIWI_ENABLE
+        range 400 4000
+        default 1000
+
+    config IRM_KIWI_PREBUFFER_MS
+        int "Vorpufferung vor Wiedergabebeginn und Soll-Fuellstand (ms)"
+        depends on IRM_KIWI_ENABLE
+        range 100 3000
+        default 400
+
+    config IRM_KIWI_CONNECT_TIMEOUT_MS
+        int "Verbindungs-Timeout (ms)"
+        depends on IRM_KIWI_ENABLE
+        range 2000 20000
+        default 8000
+        help
+            Waehrend eines haengenden Verbindungsaufbaus kann nicht auf einen anderen Kiwi umgeschaltet werden.
+
+    config IRM_KIWI_MIN_RECONNECT_S
+        int "Mindestabstand zwischen zwei Verbindungsversuchen (s)"
+        depends on IRM_KIWI_ENABLE
+        range 1 60
+        default 5
+        help
+            Schont die oeffentlichen Server; schnelles Durchschalten der Eintraege wird entsprechend verzoegert.
+
+    config IRM_KIWI_NET_TASK_PRIO
+        int "Prioritaet des Netzwerk-Tasks"
+        depends on IRM_KIWI_ENABLE
+        range 1 20
+        default 7
+
+    config IRM_KIWI_OUT_TASK_PRIO
+        int "Prioritaet des Ausgabe-Tasks"
+        depends on IRM_KIWI_ENABLE
+        range 1 24
+        default 10
+
+    config IRM_KIWI_OUT_TASK_CORE
+        int "Core des Ausgabe-Tasks (-1 = beliebig)"
+        depends on IRM_KIWI_ENABLE
+        range -1 1
+        default 1
+
+    config IRM_KIWI_STATS_S
+        int "Statistik-Logzeile alle n Sekunden (0 = aus)"
+        depends on IRM_KIWI_ENABLE
+        range 0 600
+        default 10
+
+    config IRM_KIWI_TUNE_STEP_HZ
+        int "Schrittweite beim Abstimmen per Drehgeber (Hz)"
+        depends on IRM_KIWI_ENABLE
+        range 10 100000
+        default 1000
+
+    config IRM_KIWI_ROTARY_TUNES
+        bool "Drehgeber stimmt im KiwiSDR-Betrieb ab (statt Eintrag wechseln)"
+        depends on IRM_KIWI_ENABLE && IRM_ROTARY_STATION
+        default y
+        help
+            Gilt nur, wenn der Drehgeber auf "Sender/Titel" konfiguriert ist (IRM_ROTARY_FUNCTION). Bei Lautstaerke aendert sich nichts.
+
+endmenu

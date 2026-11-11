@@ -17,6 +17,12 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 </style></head><body>
 <h1>iRadioMini2</h1><div class="mut" id="net"></div>
 <div class="now"><div class="mut" id="state"></div><b id="name">–</b></div>
+<div class="now" id="kiwi" hidden><div class="mut">KiwiSDR · <span id="kstat"></span></div>
+<div class="row"><input id="kf" type="number" step="0.1" min="10" max="32000" style="width:8rem;font:inherit;padding:.4rem;background:none;color:var(--fg);border:1px solid var(--bd);border-radius:.5rem"> kHz
+<select id="km" onchange="c('kiwi_mode',+this.value)" style="font:inherit;padding:.4rem;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:.5rem"></select>
+<button onclick="tune()">Setzen</button></div>
+<div class="row"><button onclick="c('kiwi_step',-5000)">−5k</button><button onclick="c('kiwi_step',-1000)">−1k</button><button onclick="c('kiwi_step',-100)">−100</button>
+<button onclick="c('kiwi_step',100)">+100</button><button onclick="c('kiwi_step',1000)">+1k</button><button onclick="c('kiwi_step',5000)">+5k</button></div></div>
 <div class="row"><button onclick="c('prev')">⏮</button><button onclick="c('toggle')">⏯</button><button onclick="c('next')">⏭</button>
 <button onclick="c('toggle_source')" id="src">Quelle</button></div>
 <div class="row"><span class="mut">Vol</span><input id="vol" type="range" min="0" max="100" oninput="vol(this.value)"><span id="vv" class="mut"></span></div>
@@ -27,6 +33,12 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 <script>
 const F=['31','62','125','250','500','1k','2k','4k','8k','16k'];let L=[],lastSrc='',busy=0;
 const $=i=>document.getElementById(i);
+function tune(){const v=parseFloat($('kf').value);if(v>0)c('kiwi_tune',Math.round(v*1000))}
+function kiwi(s){const k=s.kiwi;$('kiwi').hidden=!k;if(!k)return;
+ if($('km').length!==k.modes.length)$('km').innerHTML=k.modes.map((m,i)=>`<option value="${i}">${m.toUpperCase()}</option>`).join('');
+ if(document.activeElement!==$('kf'))$('kf').value=k.freq_hz/1000;
+ if(document.activeElement!==$('km'))$('km').value=k.modes.indexOf(k.mode);
+ $('kstat').textContent=(k.rssi_dbm!==undefined?k.rssi_dbm+' dBm':'–')}
 async function post(u,b){try{await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})}catch(e){}}
 const c=(cmd,value)=>post('/api/cmd',{cmd,value}).then(()=>setTimeout(poll,300));
 let vt;function vol(v){$('vv').textContent=v+'%';busy=Date.now();clearTimeout(vt);vt=setTimeout(()=>c('volume',+v),120)}
@@ -37,7 +49,7 @@ async function poll(){try{
  const s=await (await fetch('/api/status')).json();
  $('net').textContent=s.net?'WLAN verbunden':'kein WLAN';
  $('state').textContent=s.player+(s.sample_rate?` · ${s.sample_rate/1000} kHz`:'')+(s.bitrate?` · ${Math.round(s.bitrate/1000)} kbit/s`:'');
- $('name').textContent=s.name||'–';$('src').textContent=s.source==='radio'?'Radio':'Dateien';
+ $('name').textContent=s.name||'–';$('src').textContent={radio:'Radio',media:'Dateien',kiwi:'KiwiSDR'}[s.source]||s.source;kiwi(s);
  if(Date.now()-busy>1500){$('vol').value=s.volume;$('vv').textContent=s.volume+'%';
   document.querySelectorAll('.eq input').forEach((e,i)=>e.value=s.eq[i])}
  if(lastSrc!==s.source+s.count){lastSrc=s.source+s.count;L=await (await fetch('/api/list')).json()}
