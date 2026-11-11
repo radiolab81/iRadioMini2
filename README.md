@@ -1,7 +1,7 @@
 # iRadioMini2
 
 Baukasten für ESP32-Internetradios auf **ESP-IDF 6.1** – Neuaufbau von iRadioMini (ESP-IDF 4.x / ESP-ADF 2.x https://github.com/radiolab81/iRadioMini).
-Streaming (HTTP/HTTPS, MP3/AAC/…), Mediaplayer von SD-Karte, 10-Band-Equalizer, Web-UI/REST-API,
+Streaming (HTTP/HTTPS, MP3/AAC/…), Mediaplayer von SD-Karte, KiwiSDR-support, 10-Band-Equalizer, Web-UI/REST-API,
 Taster und Drehgeber, austauschbare Anzeige-Backends.
 
 ## Schnellstart
