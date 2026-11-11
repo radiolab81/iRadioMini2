@@ -19,7 +19,7 @@ Display-spezifische Pakete werden nur geladen, wenn die Anzeige in `menuconfig` 
 einfach erneut bauen; falls das Paket fehlt: `idf.py reconfigure`. Die SSD1306-Anzeige bezieht `u8g2` als Git-Abhängigkeit,
 daher muss `git` im `PATH` der Shell liegen, in der `idf.py` läuft.
 
-Auf die SD-Karte (FAT) kopieren: `playlist.m3u` (siehe `examples/playlist.m3u`) und optional `wifi.txt`
+Auf die SD-Karte (FAT) kopieren: `playlist.m3u` (siehe `examples/playlist.m3u`), optional `kiwi.m3u` für KiwiSDR (siehe `examples/kiwi.m3u`) und optional `wifi.txt`
 (siehe `examples/wifi.txt`). Die WLAN-Daten werden beim ersten Start in den NVS übernommen.
 Reihenfolge der Zugangsdaten: `wifi.txt` > NVS > Kconfig-Fallback.
 
@@ -30,20 +30,22 @@ Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setze
 
 | Komponente | Aufgabe | Abhängigkeiten |
 |---|---|---|
-| `irm_formats` | Parser für M3U, `wifi.txt`, EQ-Datei – reines C, auf dem Host testbar | – |
+| `irm_formats` | Parser für M3U, `wifi.txt`, EQ-Datei, KiwiSDR-URIs – reines C, auf dem Host testbar | – |
 | `irm_core` | Typen, Kommando-Queue, Status-Publish/Subscribe | esp_event |
 | `irm_storage` | NVS-Einstellungen, Dateihilfen, SD-Medienscan | irm_core, irm_formats |
 | `irm_board` | Audio-Ausgabe (Codec per `esp_codec_dev`, **PDM** oder **interner DAC**), I²C-Bus, SD-Mount | Kconfig-gesteuert |
-| `irm_out` | Ausgabesenken PDM/interner DAC + PCM-Helfer (Software-Lautstärke, Downmix, 8-Bit-Dither) | esp_driver_i2s/dac |
+| `irm_out` | Ausgabesenken PDM/interner DAC + PCM-Helfer (Software-Lautstärke, Downmix, 8-Bit-Dither, Resampler mit Drift-Regelung) | esp_driver_i2s/dac |
 | `irm_net` | WLAN-STA mit Reconnect-Backoff | irm_core |
 | `irm_audio` | ESP-GMF-Pipeline (HTTP/Datei → Decoder → Resampler → EQ → Codec) | gmf_*, esp_codec_dev |
-| `irm_control` | Zustandsautomat (einzige Task, die Audio steuert) | irm_audio, irm_storage |
+| `irm_kiwi` | **KiwiSDR-Quelle**: Netz-Task, Jitterpuffer, Resampler → Ausgabesenke ([Doku](docs/KIWI.md)) | kiwi_core, irm_out |
+| `kiwi_core` | portabler KiwiSDR-Client (WebSocket, PCM/ADPCM), unverändert aus ESP32_KiwiSDR | lwip |
+| `irm_control` | Zustandsautomat (einzige Task, die Audio steuert) | irm_audio, irm_kiwi, irm_storage |
 | `irm_input` | Taster (entprellt, kurz/lang) und PCNT-Drehgeber | irm_core |
 | `irm_display` + `irm_disp_*` | Anzeige-Dienst + Backends SSD1306 (u8g2), HD44780/PCF8574, Servo, **LVGL** (4 Skins) | irm_core |
 | `irm_web` | REST-API + eingebettete Web-UI | esp_http_server, cjson |
 | `irm_tx` | optionaler AM-Träger (AD9835/AD9832/AD9850/LEDC) + inet2RF-Senderwahl | irm_core |
 
-Dokumentation: [Architektur](docs/ARCHITECTURE.md) · [Komponenten-Referenz](docs/COMPONENTS.md) · [LVGL-Anzeige](docs/LVGL.md) · [AM-Sender/inet2RF](docs/RF-TX.md) · [Migration vom Altprojekt](docs/MIGRATION.md) · 
+Dokumentation: [Architektur](docs/ARCHITECTURE.md) · [Komponenten-Referenz](docs/COMPONENTS.md) · [KiwiSDR](docs/KIWI.md) · [LVGL-Anzeige](docs/LVGL.md) · [AM-Sender/inet2RF](docs/RF-TX.md) · [Migration vom Altprojekt](docs/MIGRATION.md) · 
 
 
 ## Audio-Ausgabe (auch ohne externen DAC)
@@ -88,7 +90,7 @@ PC lässt sich eine Datei auch dauerhaft umwandeln: `ffmpeg -i in.m4a -c copy -m
 |---|---|
 | `GET /api/status` | Zustand (Quelle, Player, Sender, Lautstärke, Format, EQ) |
 | `GET /api/list` | Namen der aktiven Liste (Sender bzw. Dateien) |
-| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source","value":n}` |
+| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source\|kiwi_tune\|kiwi_step\|kiwi_mode","value":n}` (`source`: 0 Radio, 1 Medien, 2 KiwiSDR; `kiwi_*` siehe [KiwiSDR](docs/KIWI.md)) |
 | `POST /api/eq` | `{"gains":[10 Werte in dB, -12..12],"save":true}` bzw. `{"action":"reset"\|"save"}` |
 
 Zustandsändernde Aufrufe sind ausschließlich `POST` mit JSON-Body (kein Seiteneffekt durch einfache Links/Bilder fremder Seiten).
@@ -102,12 +104,33 @@ cd ../irm_formats
 gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_mp4.c test/test_mp4.c -o /tmp/tm && /tmp/tm
 cd ../irm_out
 gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_pcm.c test/test_pcm.c -o /tmp/tp && /tmp/tp
+# Resampler + Drift-Regler (Simulation 20 min Netz-Jitter, dauert ca. 1-2 min)
+gcc -std=c11 -Wall -Wextra -O2 -fsanitize=undefined -Iinclude src/irm_resamp.c test/test_resamp.c -lm -o /tmp/trs && /tmp/trs
+```
+
+KiwiSDR (alles auf dem Host, ohne ESP-IDF; `KC` = `components/kiwi_core`, `PC` = Pfad zu `mock_kiwi.py` aus dem Projekt ESP32_KiwiSDR):
+
+```bash
+cd components/irm_formats      # URI-Parser, Modus-Tabelle, Abgleich mit kiwi_core
+KC=../kiwi_core; gcc -std=c11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$KC/include \
+  src/irm_kiwi_uri.c src/irm_playlist.c test/test_kiwi_uri.c $KC/src/*.c -o /tmp/tku && /tmp/tku
+cd ../irm_kiwi/test/host       # echtes irm_kiwi.c (POSIX-Shim statt FreeRTOS) gegen Mock-KiwiSDR, ca. 40 s Echtzeit
+C=../../..; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Ishim \
+  -I$C/irm_core/include -I$C/irm_out/include -I$C/irm_formats/include -I$C/kiwi_core/include -I$C/irm_kiwi/include \
+  $C/irm_kiwi/src/irm_kiwi.c $C/irm_out/src/irm_resamp.c $C/irm_formats/src/irm_kiwi_uri.c $C/kiwi_core/src/*.c shim_rtos.c test_irm_kiwi_host.c \
+  -lm -lpthread -o /tmp/tikh && ASAN_OPTIONS=detect_leaks=0 python3 e2e_irm_kiwi.py $PC /tmp/tikh
+cd ../../../irm_control/test/host   # echtes irm_control.c: drei Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
+I=../../../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include \
+  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include \
+  $C/irm_control/src/irm_control.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_kiwi_uri.c $I/../shim_rtos.c test_control_host.c \
+  -lpthread -lm -o /tmp/tch && ASAN_OPTIONS=detect_leaks=0 /tmp/tch
 ```
 
 ## Status
 
 * Verifiziert wurde: Build unter ESP-IDF v6.1 (Ziel ESP32) für die Konfigurationen
   SSD1306 / HD44780 / Servo / LVGL (alle vier Skins, ILI9341 und ST7789), alle Träger-Treiber und inet2RF sowie die Ausgaben Codec, PDM und interner DAC (Stereo/Mono); dazu die Host-Tests der Parser.
+  Die KiwiSDR-Erweiterung (`irm_kiwi`, `kiwi_core`, Änderungen an `irm_control`/`irm_core`/`irm_web`/Anzeige/Eingabe) wurde auf dem Host und gegen Live-Server getestet auf echter Hardware.
   Die Abhängigkeiten wurden dabei aus Component-Manager(`idf.py build` mit Internetzugang) eingebunden; Versionsbereiche siehe `idf_component.yml` der Komponenten.
 * Ausgabe: I²S-Codec (ES8388, ES8311), generischer I²S-DAC, **PDM auf einem GPIO** oder **interner 8-Bit-DAC** (GPIO25/26) – siehe Abschnitt „Audio-Ausgabe“. 
 * Der AM-Sender ist standardmäßig deaktiviert und unterliegt nationalen Funkvorschriften (`docs/RF-TX.md`).

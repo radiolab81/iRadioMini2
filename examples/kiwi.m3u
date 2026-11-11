@@ -1,0 +1,15 @@
+#EXTM3U
+# KiwiSDR-Eintraege fuer iRadioMini2 -> als /kiwi.m3u auf die SD-Karte (FAT).
+# Die Servernamen unten sind PLATZHALTER: bitte durch erreichbare KiwiSDR-Server ersetzen (Liste z. B. auf kiwisdr.com).
+# Format: kiwi://host[:port]/?f=<kHz><modus>[&pw=<passwort>]   (Port Standard 8073; Modus: am amn amw sam sal sau lsb lsn usb usn cw cwn nbfm nnfm)
+# Aus dem Browser kopierte Adressen funktionieren ebenfalls:  http://host:8073/?f=7055.5usb
+#EXTINF:-1,Langwelle 225 kHz (AM)
+kiwi://kiwisdr1.example.org:8073/?f=225&mode=am
+#EXTINF:-1,Zeitzeichen DCF77 77.5 kHz
+kiwi://kiwisdr2.example.org:8073/?f=77.5&mode=am
+#EXTINF:-1,40 m Amateurfunk 7100 kHz (LSB)
+kiwi://kiwisdr3.example.org:8073/?f=7100lsb
+#EXTINF:-1,Kurzwelle 6070 kHz (aus dem Browser kopiert)
+http://kiwisdr4.example.org:8073/?f=6070amz6
+#EXTINF:-1,Mit Passwort
+kiwi://kiwisdr5.example.org:8073/?f=14200usb&pw=geheim

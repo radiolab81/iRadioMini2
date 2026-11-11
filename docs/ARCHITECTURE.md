@@ -14,7 +14,7 @@
    Kommandos werden *by value* kopiert; es gibt keinen geteilten, veränderlichen Nachrichtenpuffer.
 2. **Zustand** wird per Publish/Subscribe verteilt: `irm_status_update()` ändert den Status unter Mutex atomar und
    sendet einen Schnappschuss über eine eigene `esp_event`-Loop. Abonnenten (Display, später z. B. SSE/MQTT) blockieren nie die Steuerung.
-3. **Eine Task steuert Audio.** Nur `irm_control` ruft `irm_audio_*` auf; Quellenwechsel, Retry und Fehlerbehandlung sind dort serialisiert.
+3. **Eine Task steuert Audio.** Nur `irm_control` ruft `irm_audio_*` und `irm_kiwi_*` auf (die beiden Engines teilen sich die Ausgabesenke exklusiv: vor dem Start der einen wird die andere gestoppt); Quellenwechsel, Retry und Fehlerbehandlung sind dort serialisiert.
 4. **Hardwarenähe nur in `irm_board`, Backends und Treibern.** Pins/Codec/SD kommen aus Kconfig, nicht aus `#define`s im Code.
 5. **Schichten:** `irm_formats` (rein) → `irm_core` → `irm_storage`/`irm_net`/`irm_audio` → `irm_control` → Peripherie/Web → `main` (nur Verdrahtung).
    Backends hängen von `irm_display` ab, nie umgekehrt; die Anwendung wählt das Backend.
@@ -42,4 +42,4 @@ const irm_display_backend_t my_backend = { "mein", init, render, deinit };
 Textaufbereitung: `irm_view_title/info/volume`. Ein LVGL-Backend lässt sich identisch anbinden (Display-Task = LVGL-Task).
 
 ## Host-Tests
-`irm_formats` hat keinerlei IDF-Abhängigkeit und wird mit gcc/ASan getestet (siehe README).
+`irm_formats` und `irm_resamp` haben keinerlei IDF-Abhängigkeit und werden mit gcc/ASan getestet (siehe README). `irm_kiwi.c` und `irm_control.c` laufen auf dem Host gegen einen POSIX-Shim (FreeRTOS/esp_*) und Fakes bzw. einen Mock-KiwiSDR.

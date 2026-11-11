@@ -31,8 +31,12 @@ Kconfig: Board (AudioKit/eigenes), Codec (ES8388/ES8311/Dummy), Pins, Ausgaberat
 `irm_audio_init(codec, sink, …)/play/stop/pause/resume/set_volume/set_eq` auf Basis von ESP-GMF. Ausgabe: Codec-IO oder eigenes Sink-IO (`irm_io_sink`). Ereignisse (`IRM_AUDIO_EVT_*`) per Callback.
 
 ## irm_control
-Zustandsautomat/Controller (einzige Task, die Audio steuert): Quellenwahl (Radio/Medien), Playlist-Navigation, Retry-Backoff,
+Zustandsautomat/Controller (einzige Task, die Audio steuert): Quellenwahl (Radio/Medien/KiwiSDR, reihum), Playlist-Navigation, Retry-Backoff,
 verzögertes Persistieren; `irm_control_item_count/irm_control_item` für Listenzugriff (z. B. Web).
+
+## irm_kiwi (+ kiwi_core)
+KiwiSDR-Quelle, siehe [KIWI.md](KIWI.md). `irm_kiwi_init(sink, cb, ctx)/play(uri, reset_tune)/stop/tune/tune_step/set_mode_index`; Ereignisse `IRM_KIWI_EVT_INFO/RUNNING/ERROR`.
+Frequenz/Modus/Feldstärke stehen in `irm_status_t.kiwi_*`. `irm_formats/irm_kiwi_uri.h` (URI-Parser, Modus-Tabelle) und `irm_out/irm_resamp.h` (Resampler + Drift-Regler) sind reines C.
 
 ## irm_input
 Taster (Play/Pause kurz, Quellenwechsel lang; Weiter; Zurück; Lauter/Leiser mit Wiederholung) und PCNT-Drehgeber (Lautstärke oder Sender).
