@@ -8,7 +8,9 @@
 #define IRM_EQ_MIN_DB   (-12)
 #define IRM_EQ_MAX_DB   (12)
 
-typedef enum { IRM_SOURCE_RADIO = 0, IRM_SOURCE_MEDIA = 1 } irm_source_t;
+typedef enum { IRM_SOURCE_RADIO = 0, IRM_SOURCE_MEDIA = 1, IRM_SOURCE_KIWI = 2, IRM_SOURCE_COUNT } irm_source_t;
+
+#define IRM_RSSI_NONE (-32768)   /* kiwi_rssi_dbm: noch keine Feldstaerke bekannt */
 
 typedef enum {
     IRM_PLAYER_IDLE = 0,
@@ -36,4 +38,8 @@ typedef struct {
     uint8_t            bits;
     uint32_t           bitrate;
     irm_eq_t           eq;
+    /* nur bei source == IRM_SOURCE_KIWI gueltig (sonst 0 / "" / IRM_RSSI_NONE); wird von irm_kiwi veroeffentlicht */
+    uint32_t           kiwi_freq_hz;
+    int16_t            kiwi_rssi_dbm;
+    char               kiwi_mode[8];
 } irm_status_t;

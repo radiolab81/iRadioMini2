@@ -82,7 +82,7 @@ static void render(const irm_status_t *st)
     put_line(0, a);
     if (ROWS >= 2) { char l[80]; snprintf(l, sizeof(l), "%s %s", b, c); put_line(1, l); }
     if (ROWS >= 3) put_line(2, st->ip);
-    if (ROWS >= 4) put_line(3, st->source == IRM_SOURCE_RADIO ? "Internetradio" : "Mediaplayer");
+    if (ROWS >= 4) put_line(3, st->source == IRM_SOURCE_RADIO ? "Internetradio" : (st->source == IRM_SOURCE_KIWI ? "KiwiSDR" : "Mediaplayer"));
 }
 
 static void deinit(void) { if (s_dev) { cmd(0x08); pcf(0x00); } }

@@ -21,6 +21,9 @@ typedef enum {
     IRM_CMD_SET_EQ,         /* eq */
     IRM_CMD_SAVE_EQ,
     IRM_CMD_RESET_EQ,
+    IRM_CMD_KIWI_TUNE,      /* value = Frequenz in Hz (nur Quelle KiwiSDR) */
+    IRM_CMD_KIWI_STEP,      /* value = Frequenzschritt in Hz, vorzeichenbehaftet */
+    IRM_CMD_KIWI_MODE,      /* value = Index der Modus-Tabelle (irm_kiwi_mode_name), < 0 = naechster Modus */
     /* intern (nur von irm_control/irm_audio verwendet) */
     IRM_CMD_INTERNAL_AUDIO_EVENT,
     IRM_CMD_INTERNAL_NET_CHANGED,
@@ -32,7 +35,7 @@ typedef struct {
     union {
         int32_t  value;
         irm_eq_t eq;
-        struct { int32_t type; uint32_t rate; uint8_t ch; uint8_t bits; uint32_t bitrate; } audio;
+        struct { int32_t type; uint32_t rate; uint8_t ch; uint8_t bits; uint8_t origin; /* 0 = irm_audio, 1 = irm_kiwi */ uint32_t bitrate; } audio;
     };
 } irm_cmd_t;
 

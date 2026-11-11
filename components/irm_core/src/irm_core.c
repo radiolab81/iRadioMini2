@@ -21,6 +21,7 @@ esp_err_t irm_core_init(void)
     if (!s_cmd_q || !s_lock) return ESP_ERR_NO_MEM;
     memset(&s_status, 0, sizeof(s_status));
     s_status.index = -1;
+    s_status.kiwi_rssi_dbm = IRM_RSSI_NONE;
     const esp_event_loop_args_t args = {
         .queue_size = 16, .task_name = "irm_evt", .task_priority = 5,
         .task_stack_size = 4096, .task_core_id = tskNO_AFFINITY,
