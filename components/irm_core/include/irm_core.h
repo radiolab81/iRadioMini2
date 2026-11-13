@@ -24,6 +24,8 @@ typedef enum {
     IRM_CMD_KIWI_TUNE,      /* value = Frequenz in Hz (nur Quelle KiwiSDR) */
     IRM_CMD_KIWI_STEP,      /* value = Frequenzschritt in Hz, vorzeichenbehaftet */
     IRM_CMD_KIWI_MODE,      /* value = Index der Modus-Tabelle (irm_kiwi_mode_name), < 0 = naechster Modus */
+    IRM_CMD_KIWI_CONNECT,   /* value = Datenbankindex eines Verzeichnisservers (irm_dir): Quelle KiwiSDR, aktuelle Frequenz/Modus beibehalten */
+    IRM_CMD_KIWI_FAVORITE,  /* aktuellen Kiwi-Eintrag (mit eingestellter Frequenz/Modus) in /kiwi.m3u speichern */
     /* intern (nur von irm_control/irm_audio verwendet) */
     IRM_CMD_INTERNAL_AUDIO_EVENT,
     IRM_CMD_INTERNAL_NET_CHANGED,

@@ -14,6 +14,7 @@
 #include "irm_core.h"
 #include "irm_files.h"
 #include "irm_kiwi.h"
+#include "irm_dir.h"
 #include "irm_playlist.h"
 #include "irm_settings.h"
 #include "esp_timer.h"
@@ -49,7 +50,6 @@ esp_err_t esp_timer_create(const esp_timer_create_args_t *a, esp_timer_handle_t 
 esp_err_t esp_timer_start_once(esp_timer_handle_t h, uint64_t us) { h->armed = 1; h->delay_us = us; return ESP_OK; }
 esp_err_t esp_timer_stop(esp_timer_handle_t h) { h->armed = 0; return ESP_OK; }
 static void fire_timer(void) { assert(g_timer.armed); g_timer.armed = 0; g_timer.cb(g_timer.arg); }
-BaseType_t xTaskCreate(void (*fn)(void *), const char *n, uint32_t st, void *arg, int prio, TaskHandle_t *h) { return xTaskCreatePinnedToCore(fn, n, st, arg, prio, h, 0); }
 
 /* ---------- Fake-Engines mit Exklusivitaetspruefung ---------- */
 static volatile int a_active, k_active, violations;
@@ -96,6 +96,27 @@ esp_err_t irm_settings_save_volume(uint8_t v) { (void)v; return ESP_OK; }
 esp_err_t irm_settings_save_station(int32_t i) { saved_radio = i; return ESP_OK; }
 esp_err_t irm_settings_save_kiwi_station(int32_t i) { saved_kiwi = i; return ESP_OK; }
 esp_err_t irm_settings_save_eq(const irm_eq_t *e) { (void)e; return ESP_OK; }
+
+/* ---------- Fake-Verzeichnis (irm_dir_query.c ist echt: URI-Bau/Anzeigename) + Fake-Dateizugriff ---------- */
+static int dir_init_calls, dir_have = 1;
+esp_err_t irm_dir_init(void) { dir_init_calls++; return ESP_OK; }
+bool irm_dir_get(uint32_t idx, kiwi_dir_rec_t *r)
+{
+    if (!dir_have || idx >= 8) return false;
+    memset(r, 0, sizeof *r);
+    snprintf(r->host, sizeof r->host, "srv%u.example", (unsigned)idx); r->port = (uint16_t)(8070 + idx);
+    snprintf(r->name, sizeof r->name, "Server %u", (unsigned)idx); strcpy(r->place, "Ort");
+    if (idx == 6) { r->band_lo_hz = 0; r->band_hi_hz = 30000000; } else if (idx == 7) { r->band_lo_hz = 10000000; r->band_hi_hz = 15000000; }
+    return true;
+}
+static int app_calls; static char app_path[128], app_name[96], app_uri[256]; static int app_fail;
+esp_err_t irm_files_append_playlist(const char *path, const char *name, const char *uri)
+{
+    if (app_fail) return ESP_FAIL;
+    app_calls++; strcpy(app_path, path); strcpy(app_name, name ? name : ""); strcpy(app_uri, uri); return ESP_OK;
+}
+static void set_kiwi_status(uint32_t f, const char *mode) { irm_status_t t; irm_status_get(&t); /* wie irm_kiwi: Abstimmung im Status veroeffentlichen */
+    pthread_mutex_lock(&sm); g_st.kiwi_freq_hz = f; strcpy(g_st.kiwi_mode, mode); pthread_mutex_unlock(&sm); (void)t; }
 
 /* ---------- Hilfen ---------- */
 static void settle(void) { for (int i = 0; i < 100; i++) { usleep(5000); pthread_mutex_lock(&qm); int n = qn; pthread_mutex_unlock(&qm); if (!n && i > 4) break; } usleep(60000); }
@@ -214,6 +235,66 @@ int main(void)
     cmd(IRM_CMD_STOP, 0);
     EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_IDLE, 2);
     CHECK(!k_active && !a_active, "STOP beendet beide Engines");
+
+    printf("== Verzeichnis: Server waehlen (Direkteintrag)\n");
+    sd_mounted = 1; cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO);
+    EXPECT_STATE(IRM_SOURCE_RADIO, IRM_PLAYER_CONNECTING, 1);
+    CHECK(dir_init_calls == 1, "irm_dir_init beim Start aufgerufen");
+    int kp = k_plays;
+    cmd(IRM_CMD_KIWI_CONNECT, 3);
+    EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);
+    CHECK(k_plays == kp + 1 && !a_active && k_active && k_reset, "aus dem Radio: Pipeline gestoppt, Kiwi-Sitzung gestartet (reset_tune)");
+    CHECK(strstr(k_uri, "srv3.example:8073/?f=6070&mode=am"), "Startfrequenz aus Kconfig: %s", k_uri);
+    CHECK(irm_control_item_count(IRM_SOURCE_KIWI) == 4, "Direkteintrag zaehlt als 4. Eintrag (3 Favoriten + 1)");
+    irm_control_item(IRM_SOURCE_KIWI, 3, name, sizeof name, uri, sizeof uri);
+    CHECK(!strcmp(name, "Server 3 (Ort)") && strstr(uri, "srv3"), "Eintrag 3: %s", name);
+    irm_control_item(IRM_SOURCE_KIWI, 2, name, sizeof name, uri, sizeof uri);
+    CHECK(strstr(uri, "d.example"), "Favoriten unveraendert (#2 = %s)", name);
+    { irm_status_t s = S(); CHECK(s.count == 4 && !strcmp(s.name, "Server 3 (Ort)"), "Status: count %d, Name %s", s.count, s.name); }
+
+    printf("== Verzeichnis: Frequenz/Modus bleiben beim Serverwechsel\n");
+    kiwi_evt(IRM_KIWI_EVT_RUNNING); settle();
+    set_kiwi_status(7055500, "usb");
+    cmd(IRM_CMD_KIWI_CONNECT, 4);
+    EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);
+    CHECK(strstr(k_uri, "srv4.example:8074/?f=7055.5&mode=usb") && k_reset, "uebernimmt 7055.5 kHz USB: %s", k_uri);
+    CHECK(irm_control_item_count(IRM_SOURCE_KIWI) == 4, "Direkteintrag wird ersetzt, nicht angehaengt");
+    set_kiwi_status(7055500, "usb"); cmd(IRM_CMD_KIWI_CONNECT, 6);
+    set_kiwi_status(7055500, "usb"); cmd(IRM_CMD_KIWI_CONNECT, 7);
+    CHECK(strstr(k_uri, "srv7.example:8077/?f=10000&mode=usb"), "Frequenz ausserhalb des Empfangsbereichs wird an den Rand gezogen: %s", k_uri);
+    kp = k_plays; cmd(IRM_CMD_KIWI_CONNECT, 99);
+    CHECK(k_plays == kp && strstr(k_uri, "srv7"), "ungueltiger Index: nichts passiert");
+    cmd(IRM_CMD_KIWI_CONNECT, -1); CHECK(k_plays == kp, "negativer Index ignoriert");
+
+    printf("== Verzeichnis: Umlauf NEXT/PREV schliesst den Direkteintrag ein\n");
+    cmd(IRM_CMD_NEXT, 0); EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 0);
+    cmd(IRM_CMD_PREV, 0); EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);
+    CHECK(strstr(k_uri, "srv7"), "PREV von #0 landet auf dem Direkteintrag");
+    cmd(IRM_CMD_NEXT, 0); cmd(IRM_CMD_NEXT, 0); cmd(IRM_CMD_NEXT, 0); cmd(IRM_CMD_NEXT, 0); EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);   /* 4 Eintraege: ein voller Umlauf */
+    cmd(IRM_CMD_PREV, 0); cmd(IRM_CMD_PREV, 0); EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 1);
+    cmd(IRM_CMD_NEXT, 0); cmd(IRM_CMD_NEXT, 0); EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);
+
+    printf("== Verzeichnis: als Favorit speichern\n");
+    set_kiwi_status(14200000, "lsb");
+    kp = k_plays;
+    cmd(IRM_CMD_KIWI_FAVORITE, 0);
+    CHECK(app_calls == 1 && !strcmp(app_path, "/sdcard/kiwi.m3u") && strstr(app_uri, "srv7.example:8077/?f=14200&mode=lsb") && !strcmp(app_name, "Server 7 (Ort)"), "kiwi.m3u: %s | %s", app_name, app_uri);
+    EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);
+    CHECK(k_plays == kp, "Wiedergabe laeuft ohne Neustart weiter");
+    CHECK(irm_control_item_count(IRM_SOURCE_KIWI) == 4, "weiterhin 4 Eintraege: Direkteintrag wurde zum Favoriten");
+    irm_control_item(IRM_SOURCE_KIWI, 3, name, sizeof name, uri, sizeof uri);
+    CHECK(strstr(uri, "f=14200&mode=lsb") && !strcmp(name, "Server 7 (Ort)"), "Favorit #3 traegt die eingestellte Frequenz");
+    cmd(IRM_CMD_KIWI_FAVORITE, 0);
+    CHECK(app_calls == 1, "dieselbe URI nicht doppelt gespeichert");
+    set_kiwi_status(15000000, "usb"); sd_mounted = 0; cmd(IRM_CMD_KIWI_FAVORITE, 0);
+    CHECK(app_calls == 1, "ohne SD-Karte nichts geschrieben");
+    sd_mounted = 1; app_fail = 1; cmd(IRM_CMD_KIWI_FAVORITE, 0);
+    CHECK(app_calls == 1 && irm_control_item_count(IRM_SOURCE_KIWI) == 4, "Schreibfehler: Liste im Speicher unveraendert");
+    app_fail = 0; cmd(IRM_CMD_KIWI_FAVORITE, 0);
+    CHECK(app_calls == 2 && irm_control_item_count(IRM_SOURCE_KIWI) == 5, "regulaerer Favorit (kein Direkteintrag) wird zusaetzlich angehaengt");
+    cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO); cmd(IRM_CMD_KIWI_FAVORITE, 0);
+    CHECK(app_calls == 2, "im Radiobetrieb ignoriert");
+    cmd(IRM_CMD_STOP, 0);
 
     CHECK(violations == 0, "Exklusivitaet: %d Verletzungen ueber den gesamten Lauf (a_plays=%d, k_plays=%d)", violations, a_plays, k_plays);
     printf("== Ergebnis: %s (%d Fehler)\n", fails ? "FEHLER" : "OK", fails);

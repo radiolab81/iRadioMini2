@@ -16,6 +16,9 @@
 #include "irm_kiwi.h"
 #include "irm_kiwi_uri.h"
 #endif
+#if CONFIG_IRM_DIR_ENABLE
+#include "irm_dir.h"
+#endif
 
 static const char *TAG = "irm_ctrl";
 
@@ -34,6 +37,8 @@ static struct {
     int64_t            persist_deadline_us;  /* 0 = nichts offen */
     bool               dirty_vol, dirty_idx, dirty_kiwi;
     bool               kiwi_ok;      /* irm_kiwi initialisiert */
+    bool               dyn_valid;    /* "Direkteintrag": im Verzeichnis gewaehlter Server, steht hinter den Favoriten (virtueller Index = Anzahl Favoriten) */
+    char               dyn_name[IRM_NAME_MAX_LEN], dyn_uri[IRM_URI_MAX_LEN];
     bool               kiwi_fresh;   /* naechster Kiwi-Start: Abstimmung aus dem Eintrag statt der zuletzt eingestellten */
     int                retry_s;
     esp_timer_handle_t retry_timer;
@@ -56,7 +61,11 @@ static void apply_patch(irm_status_t *s, void *ctx)
 static void publish(patch_t *p) { irm_status_update(apply_patch, p); }
 static void set_player(irm_player_state_t st) { patch_t p = { .mask = P_PLAYER }; p.v.player = st; publish(&p); }
 
-static size_t count_of(irm_source_t s) { return irm_playlist_count(c.lists[s]); }
+/* Eintraege einer Quelle = Playlist (+ bei KiwiSDR der Direkteintrag aus dem Verzeichnis als letzter virtueller Eintrag). Aufrufer halten list_lock. */
+static bool is_dyn(irm_source_t s, size_t idx) { return s == IRM_SOURCE_KIWI && c.dyn_valid && idx == irm_playlist_count(c.lists[s]); }
+static size_t count_of(irm_source_t s) { return irm_playlist_count(c.lists[s]) + ((s == IRM_SOURCE_KIWI && c.dyn_valid) ? 1u : 0u); }
+static const char *item_uri(irm_source_t s, size_t idx) { return is_dyn(s, idx) ? c.dyn_uri : irm_playlist_uri(c.lists[s], idx); }
+static const char *item_name(irm_source_t s, size_t idx) { return is_dyn(s, idx) ? c.dyn_name : irm_playlist_name(c.lists[s], idx); }
 
 /* Radio und KiwiSDR sind Live-Quellen (Netz noetig, Pause = trennen, Fehler -> Wiederholen); nur Dateien sind abspielbar/pausierbar. */
 static bool is_live(irm_source_t s) { return s != IRM_SOURCE_MEDIA; }
@@ -82,10 +91,10 @@ bool irm_control_item(irm_source_t src, size_t idx, char *name, size_t nsz, char
 {
     bool ok = false;
     xSemaphoreTake(c.list_lock, portMAX_DELAY);
-    const char *u = irm_playlist_uri(c.lists[src], idx);
+    const char *u = item_uri(src, idx);
     if (u) {
         if (uri && usz) strlcpy(uri, u, usz);
-        if (name && nsz) strlcpy(name, irm_playlist_name(c.lists[src], idx), nsz);
+        if (name && nsz) strlcpy(name, item_name(src, idx), nsz);
         ok = true;
     }
     xSemaphoreGive(c.list_lock);
@@ -99,8 +108,8 @@ static void publish_item(void)
     p.v.index = c.index[c.source];
     xSemaphoreTake(c.list_lock, portMAX_DELAY);
     p.v.count = (int32_t)count_of(c.source);
-    const char *u = irm_playlist_uri(c.lists[c.source], (size_t)p.v.index);
-    if (u) { strlcpy(p.v.uri, u, sizeof(p.v.uri)); strlcpy(p.v.name, irm_playlist_name(c.lists[c.source], (size_t)p.v.index), sizeof(p.v.name)); }
+    const char *u = item_uri(c.source, (size_t)p.v.index);
+    if (u) { strlcpy(p.v.uri, u, sizeof(p.v.uri)); strlcpy(p.v.name, item_name(c.source, (size_t)p.v.index), sizeof(p.v.name)); }
     else p.v.index = -1;
     xSemaphoreGive(c.list_lock);
     publish(&p);
@@ -249,6 +258,62 @@ static void set_eq(const irm_eq_t *eq)
     patch_t p = { .mask = P_EQ, .v.eq = c.eq }; publish(&p);
 }
 
+#if CONFIG_IRM_DIR_ENABLE
+/* Verzeichnisserver waehlen: Quelle KiwiSDR, aktuelle Frequenz/Modus bleiben (wer schon auf 7055 kHz USB hoert, hoert dort weiter, nur von einem anderen Empfaenger) */
+static void kiwi_connect_dir(uint32_t db_idx)
+{
+    kiwi_dir_rec_t rec;
+    if (!c.kiwi_ok || !irm_dir_get(db_idx, &rec)) { ESP_LOGW(TAG, "Verzeichnis: Eintrag %u nicht lesbar", (unsigned)db_idx); return; }
+    irm_status_t st; irm_status_get(&st);
+    uint32_t f = (uint32_t)CONFIG_IRM_DIR_DEFAULT_FREQ_KHZ * 1000u;
+    char mode[8];
+    strlcpy(mode, CONFIG_IRM_DIR_DEFAULT_MODE, sizeof(mode));
+    if (st.source == IRM_SOURCE_KIWI && st.kiwi_freq_hz) { f = st.kiwi_freq_hz; strlcpy(mode, st.kiwi_mode, sizeof(mode)); }
+    char uri[IRM_URI_MAX_LEN], name[IRM_NAME_MAX_LEN];
+    uint32_t used = 0;
+    if (!irm_dir_build_uri(&rec, f, mode, uri, sizeof(uri), &used)) { ESP_LOGW(TAG, "Verzeichnis: URI fuer %s nicht baubar", rec.host); return; }
+    if (used != f) ESP_LOGI(TAG, "Verzeichnis: %u Hz liegt ausserhalb des Empfangsbereichs von %s, verwende %u Hz", (unsigned)f, rec.host, (unsigned)used);
+    irm_dir_display_name(&rec, name, sizeof(name));
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    strlcpy(c.dyn_uri, uri, sizeof(c.dyn_uri));
+    strlcpy(c.dyn_name, name, sizeof(c.dyn_name));
+    c.dyn_valid = true;
+    const size_t favs = irm_playlist_count(c.lists[IRM_SOURCE_KIWI]);
+    xSemaphoreGive(c.list_lock);
+    c.source = IRM_SOURCE_KIWI;      /* switch_source() wuerde zuerst den alten Eintrag starten */
+    select_index((int32_t)favs);
+}
+
+/* Aktuellen Kiwi-Eintrag samt eingestellter Frequenz/Modus als Favorit in /kiwi.m3u ablegen */
+static void kiwi_add_favorite(void)
+{
+    irm_status_t st; irm_status_get(&st);
+    if (c.source != IRM_SOURCE_KIWI || st.index < 0 || !st.kiwi_freq_hz) { ESP_LOGW(TAG, "Favorit: kein KiwiSDR-Eintrag aktiv"); return; }
+    if (!irm_board_sd_mounted()) { ESP_LOGW(TAG, "Favorit: keine SD-Karte"); return; }
+    irm_kiwi_uri_t u;
+    char uri[IRM_URI_MAX_LEN];
+    if (!irm_kiwi_uri_parse(st.uri, &u)) return;
+    u.freq_hz = st.kiwi_freq_hz;
+    strlcpy(u.mode, st.kiwi_mode, sizeof(u.mode));
+    if (!irm_kiwi_uri_build(&u, uri, sizeof(uri))) { ESP_LOGW(TAG, "Favorit: URI nicht baubar"); return; }
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    bool dup = false;
+    const size_t n = irm_playlist_count(c.lists[IRM_SOURCE_KIWI]);
+    for (size_t i = 0; i < n; i++) if (!strcmp(irm_playlist_uri(c.lists[IRM_SOURCE_KIWI], i), uri)) dup = true;
+    xSemaphoreGive(c.list_lock);
+    if (dup) { ESP_LOGI(TAG, "Favorit: %s ist bereits gespeichert", uri); return; }
+    if (irm_files_append_playlist(IRM_SD_MOUNT_POINT "/kiwi.m3u", st.name, uri) != ESP_OK) { ESP_LOGW(TAG, "Favorit: kiwi.m3u nicht beschreibbar"); return; }
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    const bool was_dyn = is_dyn(IRM_SOURCE_KIWI, (size_t)st.index);
+    const bool added = irm_playlist_add(c.lists[IRM_SOURCE_KIWI], uri, st.name);
+    if (added && was_dyn) c.dyn_valid = false;   /* der Direkteintrag ist jetzt ein Favorit, an derselben Indexposition */
+    xSemaphoreGive(c.list_lock);
+    if (added) ESP_LOGI(TAG, "Favorit gespeichert: %s", uri);
+    else ESP_LOGW(TAG, "Favorit in kiwi.m3u, aber Liste im Speicher voll (nach Neustart verfuegbar): %s", uri);
+    if (added) publish_item();
+}
+#endif
+
 static void handle(const irm_cmd_t *m)
 {
     irm_status_t st; irm_status_get(&st);
@@ -284,6 +349,10 @@ static void handle(const irm_cmd_t *m)
     case IRM_CMD_KIWI_TUNE: if (c.source == IRM_SOURCE_KIWI && m->value > 0) irm_kiwi_tune((uint32_t)m->value, NULL); break;
     case IRM_CMD_KIWI_STEP: if (c.source == IRM_SOURCE_KIWI) irm_kiwi_tune_step(m->value); break;
     case IRM_CMD_KIWI_MODE: if (c.source == IRM_SOURCE_KIWI) irm_kiwi_set_mode_index(m->value); break;
+#if CONFIG_IRM_DIR_ENABLE
+    case IRM_CMD_KIWI_CONNECT:  if (m->value >= 0) kiwi_connect_dir((uint32_t)m->value); break;
+    case IRM_CMD_KIWI_FAVORITE: kiwi_add_favorite(); break;
+#endif
 #endif
     case IRM_CMD_SET_EQ:   set_eq(&m->eq); break;
     case IRM_CMD_RESET_EQ: { irm_eq_t z = { 0 }; set_eq(&z); break; }
@@ -324,6 +393,7 @@ static void kiwi_cb(const irm_kiwi_evt_t *e, void *ctx)
     }
     irm_cmd_post(&m, 0);
 }
+
 
 /* kiwi.m3u laden; ungueltige Zeilen werden gemeldet und ausgelassen, damit sie spaeter nicht endlos "wiederholt" werden */
 static void load_kiwi_list(void)
@@ -391,6 +461,9 @@ esp_err_t irm_control_start(void)
 #if CONFIG_IRM_KIWI_ENABLE
     if (irm_kiwi_init(irm_board_sink(), kiwi_cb, NULL) == ESP_OK) {
         c.kiwi_ok = true;
+#if CONFIG_IRM_DIR_ENABLE
+        irm_dir_init();
+#endif
         load_kiwi_list();
         const int kn = (int)count_of(IRM_SOURCE_KIWI);
         c.index[IRM_SOURCE_KIWI] = kn ? (cfg.kiwi_station >= 0 && cfg.kiwi_station < kn ? cfg.kiwi_station : 0) : -1;
