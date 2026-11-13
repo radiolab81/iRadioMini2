@@ -63,6 +63,26 @@ int main(void)
     assert(P("kiwi://h/?f=32000") && U.freq_hz == 32000000);              /* Grenzen */
     assert(P("kiwi://h/?f=10") && U.freq_hz == 10000);
 
+    /* --- Bauen: Rundreise Bauen -> Parsen --- */
+    {
+        irm_kiwi_uri_t a = { .port = 8073, .freq_hz = 7055500 }, b;
+        strcpy(a.host, "kiwi.example.org"); strcpy(a.mode, "usb");
+        char s[200];
+        assert(irm_kiwi_uri_build(&a, s, sizeof s) && !strcmp(s, "kiwi://kiwi.example.org:8073/?f=7055.5&mode=usb"));
+        assert(irm_kiwi_uri_parse(s, &b) && !strcmp(b.host, a.host) && b.port == 8073 && b.freq_hz == 7055500 && !strcmp(b.mode, "usb") && !b.password[0]);
+        strcpy(a.password, "p&w=1 %#+\xc3\xa4x");           /* Sonderzeichen inkl. UTF-8 */
+        assert(irm_kiwi_uri_build(&a, s, sizeof s) && strchr(s, '&') && !strchr(strstr(s, "pw=") + 3, '&') && !strchr(s, ' ') && !strchr(s, '#'));
+        assert(irm_kiwi_uri_parse(s, &b) && !strcmp(b.password, a.password));
+        a.password[0] = 0; a.freq_hz = 10000; strcpy(a.mode, "nnfm"); strcpy(a.host, "10.1.2.3"); a.port = 80;
+        assert(irm_kiwi_uri_build(&a, s, sizeof s) && irm_kiwi_uri_parse(s, &b) && b.freq_hz == 10000 && b.port == 80 && !strcmp(b.mode, "nnfm"));
+        assert(!irm_kiwi_uri_build(&a, s, 20));                      /* Puffer zu klein */
+        a.freq_hz = 5; assert(!irm_kiwi_uri_build(&a, s, sizeof s));
+        a.freq_hz = 1000000; strcpy(a.mode, "iq"); assert(!irm_kiwi_uri_build(&a, s, sizeof s));
+        strcpy(a.mode, "am"); strcpy(a.host, "bad host"); assert(!irm_kiwi_uri_build(&a, s, sizeof s));
+        strcpy(a.host, ""); assert(!irm_kiwi_uri_build(&a, s, sizeof s));
+        for (size_t n = 0; n < 60; n++) { irm_kiwi_uri_t g = { .port = 8073, .freq_hz = 7055500 }; strcpy(g.host, "kiwi.example.org"); strcpy(g.mode, "usb"); strcpy(g.password, "abc&def"); char t[64]; (void)irm_kiwi_uri_build(&g, t, n); }   /* jede Puffergroesse: kein Ueberlauf (ASan) */
+    }
+
     /* --- Frequenztext --- */
     char b[16];
     irm_kiwi_fmt_khz(b, sizeof b, 7055000); assert(!strcmp(b, "7055"));

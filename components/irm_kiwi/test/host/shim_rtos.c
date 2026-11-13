@@ -26,6 +26,7 @@ BaseType_t xTaskCreatePinnedToCore(void (*fn)(void *), const char *n, uint32_t s
     if (h) *h = (void *)th;
     return pdPASS;
 }
+BaseType_t xTaskCreate(void (*fn)(void *), const char *n, uint32_t st, void *arg, int prio, TaskHandle_t *h) { return xTaskCreatePinnedToCore(fn, n, st, arg, prio, h, 0); }
 void vTaskDelete(TaskHandle_t t) { (void)t; pthread_exit(NULL); }   /* nur vTaskDelete(NULL) wird benutzt */
 void vTaskDelay(TickType_t ms) { usleep((useconds_t)(ms ? ms : 1) * 1000); }
 

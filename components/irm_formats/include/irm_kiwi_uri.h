@@ -32,6 +32,10 @@ typedef struct {
  *  oder unbekanntem Modus. IPv6-Literale werden nicht unterstuetzt. */
 bool irm_kiwi_uri_parse(const char *uri, irm_kiwi_uri_t *out);
 
+/** Gegenstueck zu irm_kiwi_uri_parse: "kiwi://host:port/?f=7055.5&mode=usb[&pw=...]" (Passwort prozent-kodiert). Das Ergebnis ist immer wieder
+ *  parsebar und ergibt dieselben Werte. false bei zu kleinem Puffer oder ungueltiger Struktur (Host leer, Frequenz ausserhalb des Bereichs, Modus unbekannt). */
+bool irm_kiwi_uri_build(const irm_kiwi_uri_t *u, char *out, size_t n);
+
 /** Mono-Demodulationsmodi (gleiche Reihenfolge/Namen wie kiwi_core; der Host-Test gleicht beides ab). */
 size_t      irm_kiwi_mode_count(void);
 const char *irm_kiwi_mode_name(size_t idx);          /* NULL bei ungueltigem Index */

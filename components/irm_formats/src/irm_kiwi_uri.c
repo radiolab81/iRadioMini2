@@ -155,3 +155,27 @@ bool irm_kiwi_uri_parse(const char *uri, irm_kiwi_uri_t *out)
     *out = r;
     return true;
 }
+
+bool irm_kiwi_uri_build(const irm_kiwi_uri_t *u, char *out, size_t n)
+{
+    if (!u || !out || n == 0) return false;
+    if (!u->host[0] || u->port == 0 || u->freq_hz < IRM_KIWI_FREQ_MIN_HZ || u->freq_hz > IRM_KIWI_FREQ_MAX_HZ || irm_kiwi_mode_index(u->mode) < 0) return false;
+    for (const char *h = u->host; *h; h++) if (!(isalnum((unsigned char)*h) || *h == '.' || *h == '-' || *h == '_')) return false;
+    char f[16];
+    irm_kiwi_fmt_khz(f, sizeof f, u->freq_hz);
+    int len = snprintf(out, n, "kiwi://%s:%u/?f=%s&mode=%s", u->host, (unsigned)u->port, f, u->mode);
+    if (len < 0 || (size_t)len >= n) return false;
+    if (u->password[0]) {
+        static const char hex[] = "0123456789ABCDEF";
+        size_t o = (size_t)len;
+        const char *k = "&pw=";
+        for (; *k; k++) { if (o + 1 >= n) return false; out[o++] = *k; }
+        for (const char *p = u->password; *p; p++) {
+            unsigned char ch = (unsigned char)*p;
+            if (isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') { if (o + 1 >= n) return false; out[o++] = (char)ch; }
+            else { if (o + 3 >= n) return false; out[o++] = '%'; out[o++] = hex[ch >> 4]; out[o++] = hex[ch & 15]; }
+        }
+        out[o] = 0;
+    }
+    return true;
+}
