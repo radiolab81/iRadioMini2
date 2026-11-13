@@ -1,0 +1,39 @@
+menu "iRadioMini2 Serververzeichnis (irm_dir)"
+
+    config IRM_DIR_ENABLE
+        bool "KiwiSDR-Serververzeichnis (Suchen/Waehlen im Web-UI)"
+        depends on IRM_KIWI_ENABLE
+        default y
+        help
+            Haelt eine kompakte Liste der oeffentlichen KiwiSDR-Server in der Flash-Partition "kiwidb" (siehe partitions.csv, 2 x 192 KB).
+            Die Liste wird im Web-UI ueber "Liste aktualisieren" geladen (ca. 0,9 MB per HTTP). Ohne die Partition bleibt die Funktion aus.
+
+    config IRM_DIR_URL
+        string "URL der Serverliste (nur http://)"
+        depends on IRM_DIR_ENABLE
+        default "http://rx.linkfanel.net/kiwisdr_com.js"
+        help
+            Maschinenlesbare Liste der oeffentlichen KiwiSDR-Server. Das Update zerlegt sie waehrend des Empfangs und legt die Datenbank im Flash ab.
+
+    config IRM_DIR_MIN_INTERVAL_S
+        int "Mindestabstand zwischen zwei Updates (s)"
+        depends on IRM_DIR_ENABLE
+        range 0 86400
+        default 60
+        help
+            Schont den Verzeichnisdienst und die Flash-Schreibzyklen; im Web-UI laesst sich der Abstand mit "erzwingen" umgehen.
+
+    config IRM_DIR_DEFAULT_FREQ_KHZ
+        int "Startfrequenz, wenn ein Server gewaehlt wird, ohne dass zuvor KiwiSDR lief (kHz)"
+        depends on IRM_DIR_ENABLE
+        range 10 32000
+        default 6070
+        help
+            Lief KiwiSDR bereits, wird beim Serverwechsel die aktuelle Frequenz/der Modus uebernommen.
+
+    config IRM_DIR_DEFAULT_MODE
+        string "Startmodus (am, amn, amw, sam, lsb, usb, cw, nbfm, ...)"
+        depends on IRM_DIR_ENABLE
+        default "am"
+
+endmenu

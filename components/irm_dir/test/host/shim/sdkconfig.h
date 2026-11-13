@@ -1,0 +1,3 @@
+#define CONFIG_IRM_DIR_ENABLE 1
+#define CONFIG_IRM_DIR_URL "http://127.0.0.1:18973/kiwisdr_com.js"
+#define CONFIG_IRM_DIR_MIN_INTERVAL_S 2
