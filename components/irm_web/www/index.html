@@ -12,6 +12,10 @@ button{font:inherit;background:none;color:var(--fg);border:1px solid var(--bd);b
 button:hover{border-color:var(--ac)}.row{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0;align-items:center}
 input[type=range]{flex:1;accent-color:var(--ac)}ul{list-style:none;padding:0;margin:0;max-height:16rem;overflow:auto;border:1px solid var(--bd);border-radius:.5rem}
 li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{color:var(--ac);font-weight:600}
+.dl{border:1px solid var(--bd);border-radius:.6rem;padding:.6rem .8rem;margin:.8rem 0}.dl summary{cursor:pointer;font-weight:600}
+.dl input[type=text],.dl select{font:inherit;padding:.35rem;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:.5rem;min-width:0}
+.dl ul{max-height:22rem}.dl li{cursor:default;display:flex;gap:.5rem;align-items:center;justify-content:space-between}.dl li div{min-width:0}
+.dl li b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dl li button{flex:none;padding:.35rem .7rem}.err{color:#d33}
 .eq{display:flex;gap:.3rem;justify-content:space-between}.eq div{text-align:center;font-size:.7rem}
 .eq input{writing-mode:vertical-lr;direction:rtl;height:7rem;width:1.6rem}
 </style></head><body>
@@ -20,13 +24,26 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 <div class="now" id="kiwi" hidden><div class="mut">KiwiSDR · <span id="kstat"></span></div>
 <div class="row"><input id="kf" type="number" step="0.1" min="10" max="32000" style="width:8rem;font:inherit;padding:.4rem;background:none;color:var(--fg);border:1px solid var(--bd);border-radius:.5rem"> kHz
 <select id="km" onchange="c('kiwi_mode',+this.value)" style="font:inherit;padding:.4rem;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:.5rem"></select>
-<button onclick="tune()">Setzen</button></div>
+<button onclick="tune()">Setzen</button><button onclick="fav()" title="Server und Frequenz in kiwi.m3u speichern (SD-Karte noetig)">★ Favorit</button></div><div class="mut" id="kmsg"></div>
 <div class="row"><button onclick="c('kiwi_step',-5000)">−5k</button><button onclick="c('kiwi_step',-1000)">−1k</button><button onclick="c('kiwi_step',-100)">−100</button>
 <button onclick="c('kiwi_step',100)">+100</button><button onclick="c('kiwi_step',1000)">+1k</button><button onclick="c('kiwi_step',5000)">+5k</button></div></div>
 <div class="row"><button onclick="c('prev')">⏮</button><button onclick="c('toggle')">⏯</button><button onclick="c('next')">⏭</button>
 <button onclick="c('toggle_source')" id="src">Quelle</button></div>
 <div class="row"><span class="mut">Vol</span><input id="vol" type="range" min="0" max="100" oninput="vol(this.value)"><span id="vv" class="mut"></span></div>
 <ul id="list"></ul>
+<details class="dl" id="dir" ontoggle="if(this.open)dirOpen()"><summary>KiwiSDR-Server suchen</summary>
+<div class="mut" id="dinfo">–</div>
+<div class="row"><button id="dupd" onclick="dirUpdate(false,true)">Liste aktualisieren</button><span class="mut" id="dprog"></span></div>
+<div id="dui" hidden>
+<div class="row"><input type="text" id="dt" maxlength="20" placeholder="Name, Ort, Land …" style="flex:1" onkeydown="if(event.key==='Enter')dirSearch(0)">
+<select id="dc"><option value="">alle Länder</option></select></div>
+<div class="row"><select id="dq"><option value="0">SNR egal</option><option value="20">SNR ≥ 20 dB</option><option value="25">≥ 25 dB</option><option value="30">≥ 30 dB</option><option value="35">≥ 35 dB</option></select>
+<select id="ds"><option value="list">Reihenfolge der Liste</option><option value="snr">beste SNR zuerst</option></select></div>
+<div class="row"><label><input type="checkbox" id="df"> nur freie Kanäle</label><label><input type="checkbox" id="dfq"> deckt <span id="dfv">aktuelle</span> kHz ab</label></div>
+<div class="row"><button onclick="dirSearch(0)">Suchen</button><span class="mut" id="dcnt"></span></div>
+<ul id="dlist"></ul>
+<div class="row"><button id="dprev" onclick="dirSearch(D.off-D.lim)">‹</button><button id="dnext" onclick="dirSearch(D.off+D.lim)">›</button></div>
+</div></details>
 <h2 style="font-size:1rem;margin-top:1.2rem">Equalizer</h2>
 <div class="eq" id="eq"></div>
 <div class="row"><button onclick="eq(true)">Speichern</button><button onclick="post('/api/eq',{action:'reset'})">Zurücksetzen</button></div>
@@ -34,7 +51,7 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 const F=['31','62','125','250','500','1k','2k','4k','8k','16k'];let L=[],lastSrc='',busy=0;
 const $=i=>document.getElementById(i);
 function tune(){const v=parseFloat($('kf').value);if(v>0)c('kiwi_tune',Math.round(v*1000))}
-function kiwi(s){const k=s.kiwi;$('kiwi').hidden=!k;if(!k)return;
+let KF=0;function kiwi(s){const k=s.kiwi;KF=k?k.freq_hz:0;$('dfv').textContent=KF?(KF/1000):'aktuelle';$('kiwi').hidden=!k;if(!k)return;
  if($('km').length!==k.modes.length)$('km').innerHTML=k.modes.map((m,i)=>`<option value="${i}">${m.toUpperCase()}</option>`).join('');
  if(document.activeElement!==$('kf'))$('kf').value=k.freq_hz/1000;
  if(document.activeElement!==$('km'))$('km').value=k.modes.indexOf(k.mode);
@@ -52,8 +69,53 @@ async function poll(){try{
  $('name').textContent=s.name||'–';$('src').textContent={radio:'Radio',media:'Dateien',kiwi:'KiwiSDR'}[s.source]||s.source;kiwi(s);
  if(Date.now()-busy>1500){$('vol').value=s.volume;$('vv').textContent=s.volume+'%';
   document.querySelectorAll('.eq input').forEach((e,i)=>e.value=s.eq[i])}
- if(lastSrc!==s.source+s.count){lastSrc=s.source+s.count;L=await (await fetch('/api/list')).json()}
+ if(lastSrc!==s.source+s.count+'|'+(s.source==='kiwi'?s.name:'')){lastSrc=s.source+s.count+'|'+(s.source==='kiwi'?s.name:'');L=await (await fetch('/api/list')).json()}
  $('list').innerHTML=L.map((n,i)=>`<li class="${i===s.index?'cur':''}" onclick="c('goto',${i})">${n.replace(/[<&]/g,m=>m==='<'?'&lt;':'&amp;')}</li>`).join('');
 }catch(e){$('net').textContent='keine Verbindung'}}
+
+/* ---- Serververzeichnis: alle Fremddaten nur per textContent ausgeben ---- */
+const D={off:0,lim:20,total:0,open:false,state:'',t:0};
+const el=(t,x,c)=>{const e=document.createElement(t);if(x!==undefined)e.textContent=x;if(c)e.className=c;return e};
+async function fav(){$('kmsg').textContent='Favorit angefordert …';await c('kiwi_fav');setTimeout(()=>{$('kmsg').textContent='Favorit angefordert – ohne SD-Karte oder bei bereits gespeicherter Frequenz bleibt die Liste unverändert';lastSrc=''},900)}
+async function dirInfo(){
+ let i;try{i=await (await fetch('/api/dir')).json()}catch(e){return}
+ const was=D.state;D.state=i.state;
+ $('dui').hidden=!i.valid;$('dupd').disabled=!i.available||i.state==='updating';
+ let t=!i.available?'Flash-Partition „kiwidb“ fehlt – partitions.csv aktualisieren und neu flashen.':i.valid?`${i.count} Server in der Liste (Stand ${i.generation}. Aktualisierung)`:'Noch keine Serverliste geladen.';
+ const m=$('dinfo');m.textContent=t;m.className=i.state==='failed'?'err':'mut';
+ if(i.state==='failed'){m.textContent=t+' · Fehler: '+i.msg}
+ $('dprog').textContent=i.state==='updating'?`lädt … ${Math.round(i.bytes/1024)} KB, ${i.servers} Server`:'';
+ if(i.state==='updating')D.t=setTimeout(dirInfo,1000);
+ if(was==='updating'&&i.state==='ok'){await dirCountries();dirSearch(0)}
+ return i}
+async function dirCountries(){
+ try{const a=await (await fetch('/api/dir/countries')).json();const s=$('dc'),v=s.value;
+  s.replaceChildren(el('option','alle Länder'));s.firstChild.value='';
+  for(const c of a){const o=el('option',`${c.name} (${c.n})`);o.value=c.id;s.appendChild(o)}s.value=v}catch(e){}}
+async function dirOpen(){const i=await dirInfo();if(i&&i.valid&&!D.open){D.open=true;await dirCountries();dirSearch(0)}}
+async function dirUpdate(force,ask){
+ if(ask&&!confirm('Die Serverliste (ca. 1 MB) wird geladen und in den Flash geschrieben. Währenddessen kann der Ton kurz aussetzen. Fortfahren?'))return;
+ let r,j;try{r=await fetch('/api/dir/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force})});j=await r.json()}catch(e){alert('keine Verbindung');return}
+ if(r.status===429&&!force){if(confirm(`Die letzte Aktualisierung ist erst kurz her (noch ${j.retry_in_s} s Mindestabstand). Trotzdem laden?`))return dirUpdate(true,false);return}
+ if(!j.ok){alert(j.error||'Fehler');return}
+ D.open=false;dirInfo()}
+async function dirSearch(off){
+ D.off=Math.max(0,off||0);
+ const p=new URLSearchParams({offset:D.off,limit:D.lim,sort:$('ds').value}),t=$('dt').value.trim();
+ if(t)p.set('text',t);if($('dc').value)p.set('country',$('dc').value);if($('dq').value!=='0')p.set('snr',$('dq').value);
+ if($('df').checked)p.set('free','1');if($('dfq').checked&&KF)p.set('freq',KF);
+ $('dfv').textContent=KF?(KF/1000):'aktuelle';
+ let r;try{r=await fetch('/api/dir/list?'+p)}catch(e){return}
+ if(!r.ok){$('dcnt').textContent=r.status===400?'Suchtext zu lang oder ungültig':'Fehler';return}
+ const j=await r.json();D.total=j.total;
+ $('dcnt').textContent=j.total?`${j.offset+1}–${j.offset+j.items.length} von ${j.total}`:'keine Treffer';
+ $('dprev').disabled=j.offset<=0;$('dnext').disabled=j.offset+j.items.length>=j.total;
+ $('dlist').replaceChildren(...j.items.map(x=>{
+  const li=document.createElement('li'),d=document.createElement('div');
+  d.appendChild(el('b',x.name||x.host));
+  d.appendChild(el('span',[x.place,x.country].filter(Boolean).join(', ')+(x.place||x.country?' · ':'')+(x.max?`${x.users}/${x.max} Nutzer`:`${x.users} Nutzer`)+(x.snr?` · SNR ${x.snr} dB`:''),'mut'));
+  const b=el('button','Hören');b.onclick=()=>dirConnect(x.host,x.port);
+  li.append(d,b);return li}))}
+async function dirConnect(host,port){await post('/api/dir/connect',{host,port});setTimeout(poll,700)}
 poll();setInterval(poll,2000);
 </script></body></html>

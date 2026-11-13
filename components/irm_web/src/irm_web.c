@@ -7,6 +7,10 @@
 #include "irm_control.h"
 #include "irm_core.h"
 #include "irm_kiwi_uri.h"
+#include "irm_web_dir.h"
+#if CONFIG_IRM_DIR_ENABLE
+#include "irm_dir.h"
+#endif
 #include "irm_web.h"
 
 static const char *TAG = "irm_web";
@@ -120,6 +124,7 @@ static const struct { const char *name; irm_cmd_id_t id; } k_cmds[] = {
     { "kiwi_tune", IRM_CMD_KIWI_TUNE },   /* value = Hz */
     { "kiwi_step", IRM_CMD_KIWI_STEP },   /* value = +-Hz */
     { "kiwi_mode", IRM_CMD_KIWI_MODE },   /* value = Index, oder "mode":"usb" */
+    { "kiwi_fav",  IRM_CMD_KIWI_FAVORITE },   /* aktuellen Kiwi-Eintrag samt Frequenz in kiwi.m3u speichern */
 };
 
 static esp_err_t h_cmd(httpd_req_t *req)
@@ -153,6 +158,92 @@ static esp_err_t h_cmd(httpd_req_t *req)
     if (e != ESP_OK) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Kommando-Queue voll");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
+
+#if CONFIG_IRM_DIR_ENABLE
+/* ---- Serververzeichnis ---- */
+static esp_err_t send_json_status(httpd_req_t *req, const char *status, cJSON *j)
+{
+    httpd_resp_set_status(req, status);
+    return send_json(req, j);
+}
+
+static esp_err_t h_dir_info(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    irm_dir_info_t i;
+    irm_dir_info(&i);
+    return send_json(req, irm_web_dir_info_json(&i));
+}
+
+static esp_err_t h_dir_list(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char qs[160] = "";
+    if (httpd_req_get_url_query_len(req) >= sizeof(qs)) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Anfrage zu lang");
+    if (httpd_req_get_url_query_str(req, qs, sizeof(qs)) != ESP_OK) qs[0] = 0;   /* ohne Query: Vorgaben */
+    irm_web_dir_req_t r;
+    if (!irm_web_dir_parse_query(qs, &r)) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ungueltige Parameter");
+    cJSON *j = irm_web_dir_list_json(irm_dir_db(), &r);
+    if (!j) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Speicher");
+    return send_json(req, j);
+}
+
+static esp_err_t h_dir_countries(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    cJSON *j = irm_web_dir_countries_json(irm_dir_db());
+    if (!j) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Speicher");
+    return send_json(req, j);
+}
+
+/* POST {"force":true} -> Liste im Hintergrund aktualisieren; Fortschritt ueber GET /api/dir */
+static esp_err_t h_dir_update(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    cJSON *b = req->content_len ? read_json(req) : NULL;
+    const cJSON *f = b ? cJSON_GetObjectItemCaseSensitive(b, "force") : NULL;
+    const bool force = cJSON_IsTrue(f);
+    cJSON_Delete(b);
+    const esp_err_t e = irm_dir_update(force);
+    cJSON *j = cJSON_CreateObject();
+    if (!j) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Speicher");
+    cJSON_AddBoolToObject(j, "ok", e == ESP_OK);
+    if (e == ESP_OK) return send_json_status(req, "202 Accepted", j);
+    const char *st = "500 Internal Server Error", *msg = "Fehler";
+    switch (e) {
+    case ESP_ERR_NOT_SUPPORTED: st = "501 Not Implemented"; msg = "Partition kiwidb fehlt (partitions.csv aktualisieren und neu flashen)"; break;
+    case ESP_ERR_INVALID_STATE: st = "409 Conflict"; msg = "Aktualisierung laeuft bereits"; break;
+    case ESP_ERR_TIMEOUT: {
+        st = "429 Too Many Requests"; msg = "Mindestabstand noch nicht erreicht (erzwingen moeglich)";
+        irm_dir_info_t i; irm_dir_info(&i);
+        cJSON_AddNumberToObject(j, "retry_in_s", i.retry_in_s);
+        break;
+    }
+    case ESP_ERR_NO_MEM: st = "503 Service Unavailable"; msg = "Task nicht startbar (Speicher)"; break;
+    default: break;
+    }
+    cJSON_AddStringToObject(j, "error", msg);
+    return send_json_status(req, st, j);
+}
+
+/* POST {"host":"...","port":8073} -> Server aus dem Verzeichnis anhoeren (Host/Port statt Index: bleibt auch nach einem Update gueltig) */
+static esp_err_t h_dir_connect(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    cJSON *b = read_json(req);
+    const cJSON *h = b ? cJSON_GetObjectItemCaseSensitive(b, "host") : NULL;
+    const cJSON *p = b ? cJSON_GetObjectItemCaseSensitive(b, "port") : NULL;
+    uint32_t idx = 0;
+    esp_err_t e = ESP_ERR_NOT_FOUND;
+    if (cJSON_IsString(h) && cJSON_IsNumber(p) && p->valuedouble >= 1 && p->valuedouble <= 65535 && strlen(h->valuestring) < KIWI_DIR_HOST_LEN &&
+        kiwi_dir_db_lookup(irm_dir_db(), h->valuestring, (uint16_t)p->valuedouble, &idx) == KIWI_DIR_OK)
+        e = irm_cmd_post_id(IRM_CMD_KIWI_CONNECT, (int32_t)idx);
+    cJSON_Delete(b);
+    if (e == ESP_ERR_NOT_FOUND) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Server nicht im Verzeichnis");
+    if (e != ESP_OK) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Kommando-Queue voll");
+    return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+#endif
 
 static esp_err_t h_eq(httpd_req_t *req)
 {
@@ -192,6 +283,7 @@ esp_err_t irm_web_start(void)
         snprintf(s_auth, sizeof(s_auth), "Basic %s", enc);
     }
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.max_uri_handlers = 16;   /* Standard 8; es sind 5 Basis-Endpunkte + 5 fuer das Serververzeichnis */
     cfg.server_port = CONFIG_IRM_WEB_PORT;
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;
@@ -203,6 +295,13 @@ esp_err_t irm_web_start(void)
         { .uri = "/api/list",     .method = HTTP_GET,  .handler = h_list },
         { .uri = "/api/cmd",      .method = HTTP_POST, .handler = h_cmd },
         { .uri = "/api/eq",       .method = HTTP_POST, .handler = h_eq },
+#if CONFIG_IRM_DIR_ENABLE
+        { .uri = "/api/dir",           .method = HTTP_GET,  .handler = h_dir_info },
+        { .uri = "/api/dir/list",      .method = HTTP_GET,  .handler = h_dir_list },
+        { .uri = "/api/dir/countries", .method = HTTP_GET,  .handler = h_dir_countries },
+        { .uri = "/api/dir/update",    .method = HTTP_POST, .handler = h_dir_update },
+        { .uri = "/api/dir/connect",   .method = HTTP_POST, .handler = h_dir_connect },
+#endif
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) ESP_ERROR_CHECK(httpd_register_uri_handler(s_srv, &uris[i]));
     ESP_LOGI(TAG, "Web-UI auf Port %d%s", CONFIG_IRM_WEB_PORT, s_auth[0] ? " (Basic Auth)" : " (OHNE Authentifizierung)");

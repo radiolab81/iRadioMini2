@@ -10,6 +10,8 @@ extern "C" {
 esp_err_t irm_files_read(const char *path, size_t max_size, char **buf, size_t *len);
 esp_err_t irm_files_write(const char *path, const void *data, size_t len);
 /** Playlist (m3u) von Datei laden. */
+/** Haengt "#EXTINF:-1,<name>\n<uri>\n" an die M3U-Datei an (legt sie mit "#EXTM3U" an, falls sie fehlt). Zeilenumbrueche im Namen werden entfernt. */
+esp_err_t irm_files_append_playlist(const char *path, const char *name, const char *uri);
 esp_err_t irm_files_load_playlist(const char *path, irm_playlist_t *pl);
 /** Verzeichnisbaum nach Audiodateien durchsuchen (Endungen kommagetrennt, z.B. "mp3,aac,m4a,wav,flac"). */
 esp_err_t irm_files_scan_media(const char *root, const char *extensions, int max_depth, irm_playlist_t *pl);

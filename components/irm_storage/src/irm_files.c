@@ -36,6 +36,27 @@ esp_err_t irm_files_write(const char *path, const void *data, size_t len)
     return (n == len && rc == 0) ? ESP_OK : ESP_FAIL;
 }
 
+esp_err_t irm_files_append_playlist(const char *path, const char *name, const char *uri)
+{
+    if (!path || !uri || !uri[0] || strpbrk(uri, "\r\n")) return ESP_ERR_INVALID_ARG;
+    struct stat st;
+    const bool fresh = stat(path, &st) != 0 || st.st_size == 0;
+    FILE *f = fopen(path, "ab");
+    if (!f) return ESP_FAIL;
+    bool ok = true;
+    if (fresh) ok = fputs("#EXTM3U\n", f) >= 0;
+    if (ok && name && name[0]) {
+        char clean[96];
+        size_t n = 0;
+        for (const char *p = name; *p && n + 1 < sizeof(clean); p++) clean[n++] = (*p == '\r' || *p == '\n') ? ' ' : *p;
+        clean[n] = 0;
+        ok = fprintf(f, "#EXTINF:-1,%s\n", clean) >= 0;
+    }
+    if (ok) ok = fprintf(f, "%s\n", uri) >= 0;
+    const int rc = fclose(f);
+    return (ok && rc == 0) ? ESP_OK : ESP_FAIL;
+}
+
 esp_err_t irm_files_load_playlist(const char *path, irm_playlist_t *pl)
 {
     char *txt; size_t len;
