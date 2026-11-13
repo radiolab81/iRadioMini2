@@ -39,6 +39,8 @@ Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setze
 | `irm_audio` | ESP-GMF-Pipeline (HTTP/Datei → Decoder → Resampler → EQ → Codec) | gmf_*, esp_codec_dev |
 | `irm_kiwi` | **KiwiSDR-Quelle**: Netz-Task, Jitterpuffer, Resampler → Ausgabesenke ([Doku](docs/KIWI.md)) | kiwi_core, irm_out |
 | `kiwi_core` | portabler KiwiSDR-Client (WebSocket, PCM/ADPCM), unverändert aus ESP32_KiwiSDR | lwip |
+| `irm_dir` | **Serververzeichnis**: Suche/Blättern (reines C) + Flash-Datenbank, Update-Task ([Doku](docs/KIWI.md#serververzeichnis-suchen-und-auswählen-im-web-ui)) | kiwi_dir, esp_partition |
+| `kiwi_dir` | portabler Verzeichnisdienst-Client (Parser, DB, HTTP), aus ESP32_KiwiSDR; `kiwi_dir_cmd.c` (Konsole) ist nicht Teil des Builds | kiwi_core |
 | `irm_control` | Zustandsautomat (einzige Task, die Audio steuert) | irm_audio, irm_kiwi, irm_storage |
 | `irm_input` | Taster (entprellt, kurz/lang) und PCNT-Drehgeber | irm_core |
 | `irm_display` + `irm_disp_*` | Anzeige-Dienst + Backends SSD1306 (u8g2), HD44780/PCF8574, Servo, **LVGL** (4 Skins) | irm_core |
@@ -119,10 +121,23 @@ C=../../..; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C
   -I$C/irm_core/include -I$C/irm_out/include -I$C/irm_formats/include -I$C/kiwi_core/include -I$C/irm_kiwi/include \
   $C/irm_kiwi/src/irm_kiwi.c $C/irm_out/src/irm_resamp.c $C/irm_formats/src/irm_kiwi_uri.c $C/kiwi_core/src/*.c shim_rtos.c test_irm_kiwi_host.c \
   -lm -lpthread -o /tmp/tikh && ASAN_OPTIONS=detect_leaks=0 python3 e2e_irm_kiwi.py $PC /tmp/tikh
-cd ../../../irm_control/test/host   # echtes irm_control.c: drei Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
+cd ../../../irm_dir            # Verzeichnis-Suche/Paging/Sortierung/URI-Bau auf echter Datenbank (aus test/kiwisdr_sample.js)
+D=../kiwi_dir; KC=../kiwi_core; SRC="$(ls $D/src/*.c | grep -v kiwi_dir_cmd.c) $KC/src/*.c"
+gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$D/include -I$KC/include -I../irm_formats/include \
+  src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC test/test_irm_dir_query.c -o /tmp/tdq && ASAN_OPTIONS=detect_leaks=0 /tmp/tdq
+# echtes irm_dir.c (Update-Task, Mindestabstand, Fehler -> alte Liste bleibt) gegen lokalen HTTP-Server (Port 18973)
+I=../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Itest/host/shim -I$I -Iinclude \
+  -I$D/include -I$KC/include -I../irm_formats/include src/irm_dir.c src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC ../irm_kiwi/test/host/shim_rtos.c \
+  test/host/test_irm_dir_host.c -lpthread -lm -o /tmp/tidh && ASAN_OPTIONS=detect_leaks=0 python3 test/host/e2e_irm_dir.py test/kiwisdr_sample.js /tmp/tidh
+cd ../irm_web                  # Query-Parser/UTF-8/JSON mit echtem cJSON ($CJ = Verzeichnis mit cJSON.c/.h, z. B. aus github.com/DaveGamble/cJSON v1.7.x)
+gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$CJ -I../irm_dir/include -I$D/include -I$KC/include \
+  -I../irm_formats/include src/irm_web_dir.c ../irm_dir/src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC $CJ/cJSON.c test/test_irm_web_dir.c -lm -o /tmp/twd \
+  && ASAN_OPTIONS=detect_leaks=0 /tmp/twd ../irm_dir/test/kiwisdr_sample.js
+(cd test/ui && npm install jsdom && node test_ui.js)   # Oberflaeche in jsdom gegen simulierte REST-API (u. a. XSS mit boesartigen Servernamen)
+cd ../irm_control/test/host   # echtes irm_control.c: drei Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
 I=../../../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include \
-  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include \
-  $C/irm_control/src/irm_control.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_kiwi_uri.c $I/../shim_rtos.c test_control_host.c \
+  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include \
+  $C/irm_control/src/irm_control.c $C/irm_dir/src/irm_dir_query.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_kiwi_uri.c $(ls $C/kiwi_dir/src/*.c | grep -v kiwi_dir_cmd.c) $C/kiwi_core/src/*.c $I/../shim_rtos.c test_control_host.c \
   -lpthread -lm -o /tmp/tch && ASAN_OPTIONS=detect_leaks=0 /tmp/tch
 ```
 

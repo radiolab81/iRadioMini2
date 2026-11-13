@@ -2,3 +2,6 @@
 nvs,      data, nvs,     0x9000,  0x6000
 phy_init, data, phy,     0xf000,  0x1000
 factory,  app,  factory, 0x10000, 0x300000
+# kiwidb = Serverdatenbank des KiwiSDR-Verzeichnisses (components/irm_dir): 2 Slots (A/B) zu 192 KB, damit ein Update die alte Liste nie zerstoert.
+# Nach dem Hinzufuegen einmal komplett flashen (idf.py flash schreibt auch die Partitionstabelle). Ohne diese Zeile bleibt das Verzeichnis aus.
+kiwidb,   data, 0x40,    0x310000, 0x60000

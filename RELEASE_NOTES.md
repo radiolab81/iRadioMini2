@@ -7,6 +7,8 @@ Neuaufbau von iRadioMini für **ESP-IDF 6.1** (Ziel: ESP32).
 * Audio: ESP-GMF + esp_codec_dev, 10-Band-EQ, HTTPS mit Zertifikatsprüfung.
 * Anzeigen: SSD1306, HD44780, Servo, LVGL (Skins basic/linear/round/cassette).
 * **KiwiSDR als dritte Quelle** (`irm_kiwi`, Client `kiwi_core`): Abstimmen per Web/REST/Drehgeber, Presets in `kiwi.m3u`, siehe `docs/KIWI.md`.
+* **KiwiSDR-Serververzeichnis** (`irm_dir`, `kiwi_dir`): Liste im Flash (neue Partition `kiwidb`), im Web-UI laden/suchen/„Hören“/Favorit, siehe `docs/KIWI.md`. Neue REST-Endpunkte `/api/dir*`; HTTP-Server mit 16 statt 8 URI-Handlern.
+* **Fix (Original):** `irm_out_dac.c` wurde auch bei Codec-/PDM-Ausgang kompiliert, `CONFIG_IRM_DAC_NS_ORDER` existiert dort aber nicht → Fallback-Wert, Build läuft wieder durch.
 * Optional: AM-Träger (AD9835/AD9832/AD9850/LEDC) und inet2RF.
 * Audio-Ausgabe auch ohne externen DAC: PDM (GPIO) und interner ESP32-DAC.
 * Web-UI + REST-API, NVS-Persistenz, Reconnect-Backoff, Host-Tests der Parser.
