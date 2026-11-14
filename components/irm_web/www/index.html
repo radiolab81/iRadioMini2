@@ -16,6 +16,9 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 .dl input[type=text],.dl select{font:inherit;padding:.35rem;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:.5rem;min-width:0}
 .dl ul{max-height:22rem}.dl li{cursor:default;display:flex;gap:.5rem;align-items:center;justify-content:space-between}.dl li div{min-width:0}
 .dl li b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dl li button{flex:none;padding:.35rem .7rem}.err{color:#d33}
+.fb{border:1px solid var(--bd);border-radius:.6rem;padding:.6rem .8rem;margin:.8rem 0}
+.crumbs{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center;margin:.3rem 0}.crumbs button{padding:.2rem .55rem;font-size:.85rem}
+.fb ul{max-height:22rem}.fb li{display:flex;gap:.5rem;align-items:center}.fb li .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}.fb li.up{color:var(--mut)}
 .eq{display:flex;gap:.3rem;justify-content:space-between}.eq div{text-align:center;font-size:.7rem}
 .eq input{writing-mode:vertical-lr;direction:rtl;height:7rem;width:1.6rem}
 </style></head><body>
@@ -31,6 +34,11 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 <button onclick="c('toggle_source')" id="src">Quelle</button></div>
 <div class="row"><span class="mut">Vol</span><input id="vol" type="range" min="0" max="100" oninput="vol(this.value)"><span id="vv" class="mut"></span></div>
 <ul id="list"></ul>
+<div class="fb" id="fb" hidden><div class="mut" id="fcount"></div>
+<div class="crumbs" id="crumbs"></div>
+<div class="row"><button onclick="allTitles()" title="Gesamte SD-Karte rekursiv als Wiedergabeliste">Alle Titel</button><span class="mut" id="fmsg"></span></div>
+<ul id="flist"></ul>
+<div class="row"><button id="fprev" onclick="fPrev()">‹</button><button id="fnext" onclick="fNext()">›</button><span class="mut" id="fcnt"></span></div></div>
 <details class="dl" id="dir" hidden ontoggle="if(this.open)dirOpen()"><summary>KiwiSDR-Server suchen</summary>
 <div class="mut" id="dinfo">–</div>
 <div class="row"><button id="dupd" onclick="dirUpdate(false,true)">Liste aktualisieren</button><span class="mut" id="dprog"></span></div>
@@ -66,12 +74,47 @@ async function poll(){try{
  const s=await (await fetch('/api/status')).json();
  $('net').textContent=s.net?'WLAN verbunden':'kein WLAN';
  $('state').textContent=s.player+(s.sample_rate?` · ${s.sample_rate/1000} kHz`:'')+(s.bitrate?` · ${Math.round(s.bitrate/1000)} kbit/s`:'');
- $('name').textContent=s.name||'–';$('src').textContent={radio:'Radio',media:'Dateien',kiwi:'KiwiSDR'}[s.source]||s.source;kiwi(s);
+ $('name').textContent=s.name||'–';$('src').textContent={radio:'Radio',media:'Dateien',kiwi:'KiwiSDR'}[s.source]||s.source;kiwi(s);media(s);
  if(Date.now()-busy>1500){$('vol').value=s.volume;$('vv').textContent=s.volume+'%';
   document.querySelectorAll('.eq input').forEach((e,i)=>e.value=s.eq[i])}
+ if(s.source!=='media'){
  if(lastSrc!==s.source+s.count+'|'+(s.source==='kiwi'?s.name:'')){lastSrc=s.source+s.count+'|'+(s.source==='kiwi'?s.name:'');L=await (await fetch('/api/list')).json()}
- $('list').innerHTML=L.map((n,i)=>`<li class="${i===s.index?'cur':''}" onclick="c('goto',${i})">${n.replace(/[<&]/g,m=>m==='<'?'&lt;':'&amp;')}</li>`).join('');
+ $('list').innerHTML=L.map((n,i)=>`<li class="${i===s.index?'cur':''}" onclick="c('goto',${i})">${n.replace(/[<&]/g,m=>m==='<'?'&lt;':'&amp;')}</li>`).join('')}
 }catch(e){$('net').textContent='keine Verbindung'}}
+
+/* ---- Dateibrowser (Quelle Dateien): Ordner/Dateinamen sind Fremddaten -> nur per textContent ---- */
+const B={path:'/',cur:'',cursors:[''],page:0,lim:30,items:[],more:false,total:0,init:false};
+const dirname=p=>{const i=p.lastIndexOf('/');return i<=0?'/':p.slice(0,i)};
+const joinp=(p,n)=>(p==='/'?'':p)+'/'+n;
+function media(s){const m=s.source==='media';$('fb').hidden=!m;$('list').hidden=m;
+ if(!m){B.init=false;return}
+ B.cur=s.path||'';$('fcount').textContent=s.count+' Titel in der Wiedergabeliste';
+ if(!B.init){B.init=true;go(dirname(B.cur))}else markCur()}
+function go(p){B.cursors=[''];return browse(p,0)}
+async function browse(path,page){
+ const q=new URLSearchParams({path,limit:B.lim}),a=B.cursors[page];if(a)q.set('after',a);
+ let r;try{r=await fetch('/api/files?'+q)}catch(e){$('fmsg').textContent='keine Verbindung';return}
+ if(!r.ok){if(path!=='/')return go('/');$('fmsg').textContent=r.status===404?'Keine SD-Karte oder Ordner nicht vorhanden':'Fehler beim Laden';return}
+ const j=await r.json();B.path=j.path;B.page=page;B.items=j.items;B.more=j.more;B.total=j.total;$('fmsg').textContent='';fbRender()}
+function fPrev(){if(B.page>0)browse(B.path,B.page-1)}
+function fNext(){if(B.more&&B.items.length){B.cursors[B.page+1]=(B.items[B.items.length-1].d?'d:':'f:')+B.items[B.items.length-1].n;browse(B.path,B.page+1)}}
+function markCur(){document.querySelectorAll('#flist li[data-p]').forEach(l=>l.classList.toggle('cur',l.dataset.p===B.cur))}
+function fbRender(){
+ const cr=$('crumbs');cr.replaceChildren();
+ const add=(t,p)=>{const b=el('button',t);b.onclick=()=>go(p);cr.appendChild(b)};
+ add('SD','/');let acc='/';for(const sg of (B.path==='/'?[]:B.path.slice(1).split('/'))){acc=joinp(acc,sg);cr.appendChild(el('span','›','mut'));add(sg,acc)}
+ const mk=(ic,t,cls,fn,p)=>{const l=document.createElement('li');l.className=cls;if(p)l.dataset.p=p;l.append(el('span',ic),el('span',t,'n'));l.onclick=fn;return l};
+ const rows=[];
+ if(B.path!=='/'&&B.page===0)rows.push(mk('⬆','‥ eine Ebene höher','up',()=>go(dirname(B.path))));
+ for(const x of B.items){const p=joinp(B.path,x.n);rows.push(x.d?mk('📁',x.n,'',()=>go(p)):mk('♪',x.n,p===B.cur?'cur':'',()=>playFile(p),p))}
+ if(!B.items.length)rows.push(el('li','Keine Ordner oder abspielbaren Dateien hier','mut'));
+ $('flist').replaceChildren(...rows);
+ $('fprev').disabled=B.page===0;$('fnext').disabled=!B.more;
+ $('fcnt').textContent=B.total?`${B.page*B.lim+1}–${B.page*B.lim+B.items.length} von ${B.total}`:''}
+async function playFile(p){
+ let r;try{r=await fetch('/api/files/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})})}catch(e){$('fmsg').textContent='keine Verbindung';return}
+ $('fmsg').textContent=r.ok?'':'Datei kann nicht abgespielt werden';if(r.ok)setTimeout(poll,500)}
+function allTitles(){$('fmsg').textContent='';c('media_all')}
 
 /* ---- Serververzeichnis: alle Fremddaten nur per textContent ausgeben ---- */
 const D={off:0,lim:20,total:0,open:false,state:'',t:0};

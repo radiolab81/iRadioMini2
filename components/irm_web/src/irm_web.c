@@ -4,7 +4,9 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
+#include "irm_board.h"
 #include "irm_control.h"
+#include "irm_dirlist.h"
 #include "irm_core.h"
 #include "irm_kiwi_uri.h"
 #include "irm_web_dir.h"
@@ -91,6 +93,10 @@ static esp_err_t h_status(httpd_req_t *req)
     cJSON_AddNumberToObject(j, "bitrate", s.bitrate);
     cJSON *eq = cJSON_AddArrayToObject(j, "eq");
     for (int i = 0; i < IRM_EQ_BANDS; i++) cJSON_AddItemToArray(eq, cJSON_CreateNumber(s.eq.gain_db[i]));
+    if (s.source == IRM_SOURCE_MEDIA && s.index >= 0) {   /* Pfad der laufenden Datei relativ zur SD-Wurzel (Dateibrowser markiert sie) */
+        char rel[IRM_DL_PATH_MAX + 1];
+        if (irm_path_strip_root(s.uri, IRM_SD_MOUNT_POINT, rel, sizeof(rel))) { irm_dirlist_utf8_clean(rel); cJSON_AddStringToObject(j, "path", rel); }
+    }
     if (s.source == IRM_SOURCE_KIWI) {   /* Abstimmung: Frequenz in Hz, Modus, Feldstaerke (nur wenn bekannt) und die Modus-Tabelle */
         cJSON *k = cJSON_AddObjectToObject(j, "kiwi");
         cJSON_AddNumberToObject(k, "freq_hz", s.kiwi_freq_hz);
@@ -124,6 +130,7 @@ static const struct { const char *name; irm_cmd_id_t id; } k_cmds[] = {
     { "kiwi_tune", IRM_CMD_KIWI_TUNE },   /* value = Hz */
     { "kiwi_step", IRM_CMD_KIWI_STEP },   /* value = +-Hz */
     { "kiwi_mode", IRM_CMD_KIWI_MODE },   /* value = Index, oder "mode":"usb" */
+    { "media_all", IRM_CMD_MEDIA_ALL },   /* Quelle Dateien: ganze SD-Karte rekursiv als Playlist */
     { "kiwi_fav",  IRM_CMD_KIWI_FAVORITE },   /* aktuellen Kiwi-Eintrag samt Frequenz in kiwi.m3u speichern */
 };
 
@@ -155,6 +162,48 @@ static esp_err_t h_cmd(httpd_req_t *req)
     }
     cJSON_Delete(j);
     if (e == ESP_ERR_NOT_FOUND) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unbekanntes Kommando");
+    if (e != ESP_OK) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Kommando-Queue voll");
+    return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
+/* ---- Dateibrowser (Quelle Dateien) ---- */
+/* GET /api/files?path=/Ordner&after=d:Name|f:Name&limit=30 -> {"path","total","more","items":[{"n","d"?}]}; Cursor statt Offset: konstanter Speicherbedarf */
+static esp_err_t h_files(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    const size_t ql = httpd_req_get_url_query_len(req);
+    if (ql > 600) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Anfrage zu lang");
+    char *qs = malloc(ql + 1);
+    if (!qs) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Speicher");
+    if (ql == 0 || httpd_req_get_url_query_str(req, qs, ql + 1) != ESP_OK) qs[0] = 0;
+    irm_dl_req_t *r = malloc(sizeof(*r));
+    const bool ok = r && irm_dirlist_parse_query(qs, r);
+    free(qs);
+    if (!r) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Speicher");
+    if (!ok) { free(r); return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ungueltiger Pfad oder Parameter"); }
+    char *json = NULL;
+    const esp_err_t e = irm_control_browse(r, &json);
+    free(r);
+    if (e == ESP_ERR_NO_MEM) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Speicher");
+    if (e != ESP_OK) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "keine SD-Karte oder Ordner nicht vorhanden");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const esp_err_t se = httpd_resp_sendstr(req, json);
+    free(json);
+    return se;
+}
+
+/* POST {"path":"/Ordner/titel.mp3"} -> Datei abspielen, Playlist = Dateien dieses Ordners */
+static esp_err_t h_files_play(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    cJSON *b = read_json(req);
+    const cJSON *p = b ? cJSON_GetObjectItemCaseSensitive(b, "path") : NULL;
+    esp_err_t e = ESP_ERR_INVALID_ARG;
+    if (cJSON_IsString(p)) e = irm_control_play_path(p->valuestring);
+    cJSON_Delete(b);
+    if (e == ESP_ERR_INVALID_ARG) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ungueltiger Pfad");
+    if (e == ESP_ERR_NOT_FOUND) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Datei nicht gefunden");
     if (e != ESP_OK) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Kommando-Queue voll");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
@@ -283,7 +332,7 @@ esp_err_t irm_web_start(void)
         snprintf(s_auth, sizeof(s_auth), "Basic %s", enc);
     }
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 16;   /* Standard 8; es sind 5 Basis-Endpunkte + 5 fuer das Serververzeichnis */
+    cfg.max_uri_handlers = 16;   /* Standard 8; es sind 5 Basis-Endpunkte + 2 fuer den Dateibrowser + 5 fuer das Serververzeichnis */
     cfg.server_port = CONFIG_IRM_WEB_PORT;
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;
@@ -295,6 +344,8 @@ esp_err_t irm_web_start(void)
         { .uri = "/api/list",     .method = HTTP_GET,  .handler = h_list },
         { .uri = "/api/cmd",      .method = HTTP_POST, .handler = h_cmd },
         { .uri = "/api/eq",       .method = HTTP_POST, .handler = h_eq },
+        { .uri = "/api/files",      .method = HTTP_GET,  .handler = h_files },
+        { .uri = "/api/files/play", .method = HTTP_POST, .handler = h_files_play },
 #if CONFIG_IRM_DIR_ENABLE
         { .uri = "/api/dir",           .method = HTTP_GET,  .handler = h_dir_info },
         { .uri = "/api/dir/list",      .method = HTTP_GET,  .handler = h_dir_list },
