@@ -7,7 +7,8 @@ Alle Komponenten liegen in `components/`. Konfiguration: `idf.py menuconfig` →
 * `irm_wifi_conf_parse()` – wpa_supplicant-ähnliche `wifi.txt` (exakte Schlüssel, offene Netze via `key_mgmt=NONE`).
 * `irm_eqfile_parse/format()` – Zeilenformat für EQ-Werte.
 * `irm_mp4_*` – MP4/M4A-Atom-Scan, Offset-Korrektur (`stco`/`co64`) und virtuelles „faststart“-Lesen (`irm_mp4_fs_*`).
-Test: `components/irm_formats/test/test_formats.c`.
+* `irm_dirlist_*` / `irm_path_*` – Dateibrowser-Bausteine (nur POSIX `dirent`/`stat`): Pfadprüfung für Pfade aus dem Netz, seitenweises sortiertes Listing mit Cursor (Ordner zuerst, dann Dateien, alphabetisch ohne Groß-/Kleinschreibung; Speicher nur O(Seitengröße)), JSON-Ausgabe (UTF-8-bereinigt, escaped), Query-Parser, alphabetische Ordner-Playlist (`irm_dirlist_scan_sorted`).
+Test: `components/irm_formats/test/test_formats.c`, `test_dirlist.c`.
 
 ## irm_core
 Typen (`irm_status_t`, `irm_eq_t`, `irm_source_t`, `irm_player_state_t`), Kommando-Queue (`irm_cmd_post*`, `irm_cmd_receive`),
@@ -47,6 +48,8 @@ Taster (Play/Pause kurz, Quellenwechsel lang; Weiter; Zurück; Lauter/Leiser mit
 
 ## irm_web
 REST-API + Web-UI (siehe README). Optional HTTP-Basic-Auth (`IRM_WEB_PASSWORD`).
+
+**Dateibrowser (Quelle „Dateien“):** Das Web-UI zeigt im Modus Dateien statt der flachen Liste einen Ordnerbaum der SD-Karte (Breadcrumb, „‥“, Ordner/Dateien antippbar, laufende Datei hervorgehoben, Seiten mit ‹ ›). Ein Klick auf eine Datei startet sie; die Wiedergabeliste besteht dann aus den Dateien **dieses Ordners** (alphabetisch, nicht rekursiv), „Weiter/Zurück“ und das Titelende folgen darin – auch an Gerätetasten und Display. **Alle Titel** stellt die bisherige rekursive Liste der ganzen SD-Karte wieder her (das ist auch die Liste beim Wechsel zur Quelle Dateien). Pfade sind relativ zur SD-Wurzel; `..`, `\\` und Steuerzeichen werden abgelehnt (`irm_path_normalize`), Namen ab 100 Bytes und versteckte Einträge (`.xyz`) erscheinen nicht, es werden nur Dateien mit den Endungen aus `IRM_MEDIA_EXTENSIONS` gezeigt. Ordner mit mehr als `IRM_MAX_MEDIA_FILES` Dateien: die Datei spielt dann allein, solange sie nicht unter den ersten `IRM_MAX_MEDIA_FILES` (alphabetisch) liegt.
 
 ## irm_tx
 AM-Träger (AD9835/AD9832/AD9850/LEDC) und inet2RF (siehe `docs/RF-TX.md`).

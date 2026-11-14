@@ -94,7 +94,9 @@ PC lässt sich eine Datei auch dauerhaft umwandeln: `ffmpeg -i in.m4a -c copy -m
 |---|---|
 | `GET /api/status` | Zustand (Quelle, Player, Sender, Lautstärke, Format, EQ) |
 | `GET /api/list` | Namen der aktiven Liste (Sender bzw. Dateien) |
-| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source\|kiwi_tune\|kiwi_step\|kiwi_mode","value":n}` (`source`: 0 Radio, 1 Medien, 2 KiwiSDR; `kiwi_*` siehe [KiwiSDR](docs/KIWI.md)) |
+| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source\|media_all\|kiwi_tune\|kiwi_step\|kiwi_mode","value":n}` (`source`: 0 Radio, 1 Medien, 2 KiwiSDR; `media_all`: ganze SD-Karte rekursiv als Wiedergabeliste; `kiwi_*` siehe [KiwiSDR](docs/KIWI.md)) |
+| `GET /api/files?path=/Ordner&after=d:Name\|f:Name&limit=30` | Dateibrowser: eine Seite des SD-Ordners (Ordner zuerst, alphabetisch), `{"path","total","more","items":[{"n","d"?}]}`; `after` = Cursor (letzter Eintrag der Vorseite), `limit` 1–40; `400` bei ungültigem Pfad, `404` ohne SD-Karte/Ordner |
+| `POST /api/files/play` | `{"path":"/Ordner/titel.mp3"}` – Datei abspielen; Wiedergabeliste = Dateien dieses Ordners (`404` wenn nicht vorhanden/keine passende Endung, `400` bei ungültigem Pfad) |
 | `POST /api/eq` | `{"gains":[10 Werte in dB, -12..12],"save":true}` bzw. `{"action":"reset"\|"save"}` |
 
 Zustandsändernde Aufrufe sind ausschließlich `POST` mit JSON-Body (kein Seiteneffekt durch einfache Links/Bilder fremder Seiten).
@@ -106,6 +108,7 @@ cd components/irm_formats
 gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/*.c test/test_formats.c -o /tmp/tf && /tmp/tf
 cd ../irm_formats
 gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_mp4.c test/test_mp4.c -o /tmp/tm && /tmp/tm
+gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_dirlist.c src/irm_playlist.c test/test_dirlist.c -o /tmp/tdl && /tmp/tdl   # Dateibrowser: Pfade, Cursor-Listing, JSON
 cd ../irm_out
 gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_pcm.c test/test_pcm.c -o /tmp/tp && /tmp/tp
 # Resampler + Drift-Regler (Simulation 20 min Netz-Jitter, dauert ca. 1-2 min)
@@ -135,11 +138,12 @@ cd ../irm_web                  # Query-Parser/UTF-8/JSON mit echtem cJSON ($CJ =
 gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$CJ -I../irm_dir/include -I$D/include -I$KC/include \
   -I../irm_formats/include src/irm_web_dir.c ../irm_dir/src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC $CJ/cJSON.c test/test_irm_web_dir.c -lm -o /tmp/twd \
   && ASAN_OPTIONS=detect_leaks=0 /tmp/twd ../irm_dir/test/kiwisdr_sample.js
-(cd test/ui && npm install jsdom && node test_ui.js)   # Oberflaeche in jsdom gegen simulierte REST-API (u. a. XSS mit boesartigen Servernamen)
+(cd test/ui && npm install jsdom && node test_ui.js && node test_ui_files.js)   # Oberflaeche in jsdom gegen simulierte REST-API (u. a. XSS mit boesartigen Servernamen; test_ui_files.js = Dateibrowser)
+# alternativ der Dateibrowser-Test in echtem Chromium: (cd test/ui && node test_ui_files_pw.js)   # benoetigt playwright
 cd ../irm_control/test/host   # echtes irm_control.c: drei Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
-I=../../../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include \
+I=../../../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -DIRM_SD_MOUNT_POINT='"/tmp/irm_sd_test"' -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include \
   -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include \
-  $C/irm_control/src/irm_control.c $C/irm_dir/src/irm_dir_query.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_kiwi_uri.c $(ls $C/kiwi_dir/src/*.c | grep -v kiwi_dir_cmd.c) $C/kiwi_core/src/*.c $I/../shim_rtos.c test_control_host.c \
+  $C/irm_control/src/irm_control.c $C/irm_dir/src/irm_dir_query.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_dirlist.c $C/irm_formats/src/irm_kiwi_uri.c $(ls $C/kiwi_dir/src/*.c | grep -v kiwi_dir_cmd.c) $C/kiwi_core/src/*.c $I/../shim_rtos.c test_control_host.c \
   -lpthread -lm -o /tmp/tch && ASAN_OPTIONS=detect_leaks=0 /tmp/tch
 ```
 
