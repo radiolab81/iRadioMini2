@@ -11,7 +11,7 @@ const items = [
   { i: 0, name: EVIL, place: '<b>Ort</b>', country: 'Germany', host: 'evil.example', port: 8073, users: 1, max: 4, snr: 33, lo: 0, hi: 30000000 },
   { i: 1, name: 'Zweiter Server', place: 'Boulder, CO', country: 'USA', host: 'srv2.example', port: 8074, users: 0, max: 0, snr: 0, lo: 0, hi: 0 },
 ];
-const srv = { posts: [], gets: [], dirstate: 'idle', valid: true, status429: false, listTotal: 45, kiwi: null, failList: false };
+const srv = { posts: [], gets: [], dirstate: 'idle', valid: true, status429: false, listTotal: 45, kiwi: null, source: 'radio', failList: false };
 
 function fakeFetch(url, opt) {
   const u = new URL(url, 'http://x/'); const p = u.pathname;
@@ -26,7 +26,7 @@ function fakeFetch(url, opt) {
     return json({ ok: true });
   }
   srv.gets.push(u.pathname + u.search);
-  if (p === '/api/status') return json({ net: true, player: 'playing', name: 'Test', source: srv.kiwi ? 'kiwi' : 'radio', volume: 30, index: 0, count: 3, eq: [0,0,0,0,0,0,0,0,0,0], kiwi: srv.kiwi, sample_rate: 12000, bitrate: 192000 });
+  if (p === '/api/status') return json({ net: true, player: 'playing', name: 'Test', source: srv.source, volume: 30, index: 0, count: 3, eq: [0,0,0,0,0,0,0,0,0,0], kiwi: srv.kiwi, sample_rate: 12000, bitrate: 192000 });
   if (p === '/api/list') return json(['A', 'B', 'C']);
   if (p === '/api/dir') return json({ available: true, valid: srv.valid, count: 842, generation: 3, state: srv.dirstate, bytes: 51200, servers: 120, err: 0, msg: '', retry_in_s: 0 });
   if (p === '/api/dir/countries') return json([{ id: 5, name: 'Germany', n: 23 }, { id: 9, name: 'USA', n: 150 }]);
@@ -49,9 +49,12 @@ function fakeFetch(url, opt) {
   console.log('== Grundzustand');
   check($('src').textContent === 'Radio', 'Quelle: Radio');
   check($('kiwi').hidden === true, 'Kiwi-Bedienfeld im Radiobetrieb verborgen');
+  check($('dir').hidden === true, 'Serversuche im Radiobetrieb verborgen');
   check(srv.gets.every(g => !g.startsWith('/api/dir')), 'Verzeichnis wird erst beim Oeffnen abgefragt (kein unnoetiger Traffic)');
 
-  console.log('== Verzeichnis oeffnen');
+  console.log('== Verzeichnis oeffnen (nur im Modus KiwiSDR sichtbar)');
+  srv.kiwi = { freq_hz: 7055500, mode: 'usb', modes: ['am', 'usb'], rssi_dbm: -70 }; srv.source = 'kiwi'; await w.poll();
+  check($('dir').hidden === false, 'Serversuche im KiwiSDR-Betrieb sichtbar');
   $('dir').open = true; $('dir').dispatchEvent(new w.Event('toggle'));
   await sleep(400);
   check(srv.gets.some(g => g === '/api/dir') && srv.gets.some(g => g === '/api/dir/countries') && srv.gets.some(g => g.startsWith('/api/dir/list')), 'info, countries und list abgefragt');
@@ -86,7 +89,7 @@ function fakeFetch(url, opt) {
   check(srv.posts.length === 1 && srv.posts[0].p === '/api/dir/connect' && srv.posts[0].body.host === 'evil.example' && srv.posts[0].body.port === 8073, 'POST /api/dir/connect {host, port}: ' + JSON.stringify(srv.posts[0] && srv.posts[0].body));
 
   console.log('== Frequenzfilter nur mit bekannter Frequenz');
-  srv.kiwi = { freq_hz: 7055500, mode: 'usb', modes: ['am', 'usb'], rssi_dbm: -70 }; await sleep(2300);
+  srv.kiwi.freq_hz = 7055500; await w.poll();
   check($('kiwi').hidden === false && $('dfv').textContent === '7055.5', 'Kiwi-Betrieb: Frequenz im Filtertext (' + $('dfv').textContent + ')');
   $('dfq').checked = true; srv.gets.length = 0; $('dt').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter' })); await sleep(200);
   check(new URL(srv.gets.find(g => g.startsWith('/api/dir/list')), 'http://x').searchParams.get('freq') === '7055500', 'freq=7055500 (Hz) uebergeben');

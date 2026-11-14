@@ -31,7 +31,7 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 <button onclick="c('toggle_source')" id="src">Quelle</button></div>
 <div class="row"><span class="mut">Vol</span><input id="vol" type="range" min="0" max="100" oninput="vol(this.value)"><span id="vv" class="mut"></span></div>
 <ul id="list"></ul>
-<details class="dl" id="dir" ontoggle="if(this.open)dirOpen()"><summary>KiwiSDR-Server suchen</summary>
+<details class="dl" id="dir" hidden ontoggle="if(this.open)dirOpen()"><summary>KiwiSDR-Server suchen</summary>
 <div class="mut" id="dinfo">–</div>
 <div class="row"><button id="dupd" onclick="dirUpdate(false,true)">Liste aktualisieren</button><span class="mut" id="dprog"></span></div>
 <div id="dui" hidden>
@@ -51,7 +51,7 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 const F=['31','62','125','250','500','1k','2k','4k','8k','16k'];let L=[],lastSrc='',busy=0;
 const $=i=>document.getElementById(i);
 function tune(){const v=parseFloat($('kf').value);if(v>0)c('kiwi_tune',Math.round(v*1000))}
-let KF=0;function kiwi(s){const k=s.kiwi;KF=k?k.freq_hz:0;$('dfv').textContent=KF?(KF/1000):'aktuelle';$('kiwi').hidden=!k;if(!k)return;
+let KF=0;function kiwi(s){const k=s.kiwi;KF=k?k.freq_hz:0;$('dfv').textContent=KF?(KF/1000):'aktuelle';$('kiwi').hidden=!k;$('dir').hidden=!k;if(!k)return;
  if($('km').length!==k.modes.length)$('km').innerHTML=k.modes.map((m,i)=>`<option value="${i}">${m.toUpperCase()}</option>`).join('');
  if(document.activeElement!==$('kf'))$('kf').value=k.freq_hz/1000;
  if(document.activeElement!==$('km'))$('km').value=k.modes.indexOf(k.mode);
