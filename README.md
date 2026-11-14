@@ -23,6 +23,8 @@ Auf die SD-Karte (FAT) kopieren: `playlist.m3u` (siehe `examples/playlist.m3u`),
 (siehe `examples/wifi.txt`). Die WLAN-Daten werden beim ersten Start in den NVS übernommen.
 Reihenfolge der Zugangsdaten: `wifi.txt` > NVS > Kconfig-Fallback.
 
+**KiwiSDR-Quelle und Serversuche:** Der Bereich „KiwiSDR-Server suchen“ im Web-UI erscheint nur im Modus *KiwiSDR*. Dieser Modus ist nur wählbar, wenn mindestens ein Eintrag existiert – lege dazu eine `kiwi.m3u` auf die SD-Karte (Vorlage: `examples/kiwi.m3u`) oder setze in `menuconfig` einen Vorgabe-Eintrag (`IRM_KIWI_DEFAULT_URI`, z. B. `kiwi://kiwi.example.org:8073/?f=7055.5usb`). Ohne einen von beiden bleibt die Quelle KiwiSDR – und damit die Serversuche – unerreichbar.
+
 Die Web-Oberfläche liegt auf `http://<IP des Radios>/` (IP erscheint im Log und auf dem Display).
 Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setzen (HTTP Basic, unverschlüsselt!).
 
