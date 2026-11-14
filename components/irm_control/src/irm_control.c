@@ -9,7 +9,9 @@
 #include "irm_audio.h"
 #include "irm_board.h"
 #include "irm_control.h"
+#include <sys/stat.h>
 #include "irm_core.h"
+#include "irm_dirlist.h"
 #include "irm_files.h"
 #include "irm_settings.h"
 #if CONFIG_IRM_KIWI_ENABLE
@@ -39,6 +41,7 @@ static struct {
     bool               kiwi_ok;      /* irm_kiwi initialisiert */
     bool               dyn_valid;    /* "Direkteintrag": im Verzeichnis gewaehlter Server, steht hinter den Favoriten (virtueller Index = Anzahl Favoriten) */
     char               dyn_name[IRM_NAME_MAX_LEN], dyn_uri[IRM_URI_MAX_LEN];
+    char               pending_path[IRM_DL_PATH_MAX + 1];   /* Ziel von IRM_CMD_MEDIA_PLAY_PATH (list_lock) */
     bool               kiwi_fresh;   /* naechster Kiwi-Start: Abstimmung aus dem Eintrag statt der zuletzt eingestellten */
     int                retry_s;
     esp_timer_handle_t retry_timer;
@@ -173,23 +176,103 @@ static void select_index(int32_t idx)
     else if (c.source == IRM_SOURCE_KIWI) schedule_persist(false, false, true);
 }
 
+/* Medien-Playlist austauschen (Aufrufer: Steuer-Task); pl wird uebernommen */
+static void media_set_list(irm_playlist_t *pl, int32_t idx)
+{
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    irm_playlist_free(c.lists[IRM_SOURCE_MEDIA]);
+    c.lists[IRM_SOURCE_MEDIA] = pl;
+    xSemaphoreGive(c.list_lock);
+    c.index[IRM_SOURCE_MEDIA] = idx;
+}
+
+/* gesamte SD-Karte rekursiv (bisheriges Verhalten der Quelle Dateien) */
+static bool media_load_all(void)
+{
+    if (!irm_board_sd_mounted()) { ESP_LOGW(TAG, "Mediaplayer: keine SD-Karte"); return false; }
+    irm_playlist_t *pl = irm_playlist_new(CONFIG_IRM_MAX_MEDIA_FILES);
+    if (!pl || irm_files_scan_media(IRM_SD_MOUNT_POINT, CONFIG_IRM_MEDIA_EXTENSIONS, 4, pl) != ESP_OK) {
+        ESP_LOGW(TAG, "Mediaplayer: keine Dateien gefunden");
+        irm_playlist_free(pl);
+        return false;
+    }
+    media_set_list(pl, 0);
+    return true;
+}
+
+/* relativen Pfad pruefen und absolut machen; true nur fuer eine vorhandene, abspielbare Datei */
+static esp_err_t media_resolve(const char *rel_in, char *rel, size_t rel_sz, char *abs, size_t abs_sz)
+{
+    if (!rel_in || !irm_path_normalize(rel_in, rel, rel_sz) || !strcmp(rel, "/")) return ESP_ERR_INVALID_ARG;
+    if (!irm_board_sd_mounted()) return ESP_ERR_NOT_FOUND;
+    const int w = snprintf(abs, abs_sz, "%s%s", IRM_SD_MOUNT_POINT, rel);
+    struct stat st;
+    if (w < 0 || (size_t)w >= abs_sz || !irm_dirlist_ext_match(rel, CONFIG_IRM_MEDIA_EXTENSIONS) || stat(abs, &st) != 0 || !S_ISREG(st.st_mode)) return ESP_ERR_NOT_FOUND;
+    return ESP_OK;
+}
+
+/* Datei aus pending_path abspielen; Playlist = Dateien ihres Ordners. Passt der Ordner nicht in die Liste (IRM_MAX_MEDIA_FILES), spielt die Datei allein. */
+static void media_play_path(void)
+{
+    char want[IRM_DL_PATH_MAX + 1], rel[IRM_DL_PATH_MAX + 1], abs[IRM_PLAYLIST_URI_MAX + 1];
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    strlcpy(want, c.pending_path, sizeof(want));
+    xSemaphoreGive(c.list_lock);
+    if (media_resolve(want, rel, sizeof(rel), abs, sizeof(abs)) != ESP_OK) { ESP_LOGW(TAG, "Datei nicht abspielbar: %s", want); return; }
+    char dir[IRM_PLAYLIST_URI_MAX + 1];
+    strlcpy(dir, abs, sizeof(dir));
+    *strrchr(dir, '/') = 0;                         /* abs enthaelt mindestens "/sdcard/x" */
+    irm_playlist_t *pl = irm_playlist_new(CONFIG_IRM_MAX_MEDIA_FILES);
+    if (!pl) return;
+    int32_t idx = -1;
+    if (irm_dirlist_scan_sorted(dir, CONFIG_IRM_MEDIA_EXTENSIONS, pl)) {
+        for (size_t i = 0; i < irm_playlist_count(pl); i++) if (!strcmp(irm_playlist_uri(pl, i), abs)) { idx = (int32_t)i; break; }
+    }
+    if (idx < 0) {
+        irm_playlist_free(pl);
+        pl = irm_playlist_new(1);
+        if (!pl || !irm_playlist_add(pl, abs, strrchr(abs, '/') + 1)) { irm_playlist_free(pl); return; }
+        idx = 0;
+    }
+    media_set_list(pl, idx);
+    c.source = IRM_SOURCE_MEDIA;                    /* auch aus Radio/Kiwi heraus; select_index startet die Wiedergabe */
+    select_index(idx);
+}
+
+esp_err_t irm_control_play_path(const char *rel_path)
+{
+    char rel[IRM_DL_PATH_MAX + 1], abs[IRM_PLAYLIST_URI_MAX + 1];
+    const esp_err_t e = media_resolve(rel_path, rel, sizeof(rel), abs, sizeof(abs));
+    if (e != ESP_OK) return e;
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    strlcpy(c.pending_path, rel, sizeof(c.pending_path));
+    xSemaphoreGive(c.list_lock);
+    return irm_cmd_post_id(IRM_CMD_MEDIA_PLAY_PATH, 0);
+}
+
+esp_err_t irm_control_browse(const irm_dl_req_t *r, char **json)
+{
+    if (!irm_board_sd_mounted()) return ESP_ERR_NOT_FOUND;
+    char dir[IRM_PLAYLIST_URI_MAX + 1];
+    const int w = snprintf(dir, sizeof(dir), "%s%s", IRM_SD_MOUNT_POINT, strcmp(r->path, "/") ? r->path : "");
+    if (w < 0 || (size_t)w >= sizeof(dir)) return ESP_ERR_NOT_FOUND;
+    const size_t limit = r->limit < 1 ? 1 : (r->limit > IRM_DL_PAGE_MAX ? IRM_DL_PAGE_MAX : r->limit);
+    irm_dl_entry_t *e = malloc(limit * sizeof(*e));
+    if (!e) return ESP_ERR_NO_MEM;
+    size_t total = 0; bool more = false;
+    const int n = irm_dirlist_page(dir, CONFIG_IRM_MEDIA_EXTENSIONS, IRM_DL_DIRS | IRM_DL_FILES, r->has_after, r->after_dir, r->after, e, limit, &total, &more);
+    esp_err_t err = ESP_ERR_NOT_FOUND;
+    if (n >= 0) { *json = irm_dirlist_json(r->path, e, (size_t)n, total, more); err = *json ? ESP_OK : ESP_ERR_NO_MEM; }
+    free(e);
+    return err;
+}
+
 /* true, wenn die Quelle jetzt aktiv ist (oder es schon war) */
 static bool switch_source(irm_source_t src)
 {
     if (src == c.source) return true;
     if (src == IRM_SOURCE_MEDIA) {
-        if (!irm_board_sd_mounted()) { ESP_LOGW(TAG, "Mediaplayer: keine SD-Karte"); return false; }
-        irm_playlist_t *pl = irm_playlist_new(CONFIG_IRM_MAX_MEDIA_FILES);
-        if (!pl || irm_files_scan_media(IRM_SD_MOUNT_POINT, CONFIG_IRM_MEDIA_EXTENSIONS, 4, pl) != ESP_OK) {
-            ESP_LOGW(TAG, "Mediaplayer: keine Dateien gefunden");
-            irm_playlist_free(pl);
-            return false;
-        }
-        xSemaphoreTake(c.list_lock, portMAX_DELAY);
-        irm_playlist_free(c.lists[IRM_SOURCE_MEDIA]);
-        c.lists[IRM_SOURCE_MEDIA] = pl;
-        xSemaphoreGive(c.list_lock);
-        c.index[IRM_SOURCE_MEDIA] = 0;
+        if (!media_load_all()) return false;
     } else if (src == IRM_SOURCE_KIWI) {
         if (!c.kiwi_ok || count_of(IRM_SOURCE_KIWI) == 0) { ESP_LOGW(TAG, "KiwiSDR: keine Eintraege (kiwi.m3u fehlt/leer oder deaktiviert)"); return false; }
     }
@@ -354,6 +437,10 @@ static void handle(const irm_cmd_t *m)
     case IRM_CMD_KIWI_FAVORITE: kiwi_add_favorite(); break;
 #endif
 #endif
+    case IRM_CMD_MEDIA_ALL:
+        if (media_load_all()) { c.source = IRM_SOURCE_MEDIA; select_index(0); }
+        break;
+    case IRM_CMD_MEDIA_PLAY_PATH: media_play_path(); break;
     case IRM_CMD_SET_EQ:   set_eq(&m->eq); break;
     case IRM_CMD_RESET_EQ: { irm_eq_t z = { 0 }; set_eq(&z); break; }
     case IRM_CMD_SAVE_EQ:  irm_settings_save_eq(&c.eq); break;

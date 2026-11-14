@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 #include "irm_audio.h"
@@ -278,7 +279,7 @@ int main(void)
     set_kiwi_status(14200000, "lsb");
     kp = k_plays;
     cmd(IRM_CMD_KIWI_FAVORITE, 0);
-    CHECK(app_calls == 1 && !strcmp(app_path, "/sdcard/kiwi.m3u") && strstr(app_uri, "srv7.example:8077/?f=14200&mode=lsb") && !strcmp(app_name, "Server 7 (Ort)"), "kiwi.m3u: %s | %s", app_name, app_uri);
+    CHECK(app_calls == 1 && !strcmp(app_path, IRM_SD_MOUNT_POINT "/kiwi.m3u") && strstr(app_uri, "srv7.example:8077/?f=14200&mode=lsb") && !strcmp(app_name, "Server 7 (Ort)"), "kiwi.m3u: %s | %s", app_name, app_uri);
     EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);
     CHECK(k_plays == kp, "Wiedergabe laeuft ohne Neustart weiter");
     CHECK(irm_control_item_count(IRM_SOURCE_KIWI) == 4, "weiterhin 4 Eintraege: Direkteintrag wurde zum Favoriten");
@@ -295,6 +296,95 @@ int main(void)
     cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO); cmd(IRM_CMD_KIWI_FAVORITE, 0);
     CHECK(app_calls == 2, "im Radiobetrieb ignoriert");
     cmd(IRM_CMD_STOP, 0);
+
+
+    printf("== Dateibrowser: Ordner abspielen (echtes Dateisystem unter %s)\n", IRM_SD_MOUNT_POINT);
+    if (!strcmp(IRM_SD_MOUNT_POINT, "/sdcard")) printf("  (uebersprungen: mit -DIRM_SD_MOUNT_POINT='\"/tmp/irm_sd_test\"' bauen)\n");
+    else {
+        char b[300];
+        snprintf(b, sizeof b, "rm -rf %s", IRM_SD_MOUNT_POINT); if (system(b)) {}
+        mkdir(IRM_SD_MOUNT_POINT, 0755);
+        const char *dirs[] = { "Rock", "Rock/Live", "Big" }; const char *files[] = { "Rock/b.mp3", "Rock/a.mp3", "Rock/c.mp3", "Rock/x.txt", "Rock/Live/l1.mp3", "top.mp3" };
+        for (size_t i = 0; i < 3; i++) { snprintf(b, sizeof b, "%s/%s", IRM_SD_MOUNT_POINT, dirs[i]); mkdir(b, 0755); }
+        for (size_t i = 0; i < 6; i++) { snprintf(b, sizeof b, "%s/%s", IRM_SD_MOUNT_POINT, files[i]); FILE *f = fopen(b, "w"); if (f) { fputs("x", f); fclose(f); } }
+        for (int i = 0; i < 15; i++) { snprintf(b, sizeof b, "%s/Big/t%02d.mp3", IRM_SD_MOUNT_POINT, i); FILE *f = fopen(b, "w"); if (f) { fputs("x", f); fclose(f); } }
+        char want[300];
+        cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO); cmd(IRM_CMD_STOP, 0);
+        int ap = a_plays;
+        CHECK(irm_control_play_path("/Rock/b.mp3") == ESP_OK, "play_path akzeptiert vorhandene Datei");
+        settle();
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 1);
+        snprintf(want, sizeof want, "%s/Rock/b.mp3", IRM_SD_MOUNT_POINT);
+        CHECK(a_plays == ap + 1 && !strcmp(a_uri, want), "Pipeline startet genau diese Datei: %s", a_uri);
+        CHECK(irm_control_item_count(IRM_SOURCE_MEDIA) == 3, "Playlist = 3 Dateien des Ordners (x.txt und Unterordner nicht)");
+        irm_control_item(IRM_SOURCE_MEDIA, 0, name, sizeof name, uri, sizeof uri);
+        CHECK(!strcmp(name, "a.mp3"), "alphabetisch sortiert: #0 = %s", name);
+        cmd(IRM_CMD_NEXT, 0);
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 2);
+        snprintf(want, sizeof want, "%s/Rock/c.mp3", IRM_SD_MOUNT_POINT);
+        CHECK(!strcmp(a_uri, want), "Weiter bleibt im Ordner: %s", a_uri);
+        audio_evt(IRM_AUDIO_EVT_RUNNING); settle(); audio_evt(IRM_AUDIO_EVT_FINISHED); settle();
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
+        CHECK(strstr(a_uri, "/Rock/a.mp3") != NULL, "Titelende am Ordnerende: Umlauf zu #0 (%s)", a_uri);
+
+        printf("== Dateibrowser: ungueltige Pfade\n");
+        ap = a_plays; irm_status_t before = S();
+        CHECK(irm_control_play_path("/../etc/passwd") == ESP_ERR_INVALID_ARG, "'..' abgelehnt");
+        CHECK(irm_control_play_path("/Rock/../Rock/a.mp3") == ESP_ERR_INVALID_ARG, "'..' mitten im Pfad abgelehnt");
+        CHECK(irm_control_play_path("Rock/a.mp3") == ESP_ERR_INVALID_ARG && irm_control_play_path("/") == ESP_ERR_INVALID_ARG && irm_control_play_path(NULL) == ESP_ERR_INVALID_ARG, "relativ/Wurzel/NULL abgelehnt");
+        CHECK(irm_control_play_path("/Rock/x.txt") == ESP_ERR_NOT_FOUND, "falsche Endung abgelehnt");
+        CHECK(irm_control_play_path("/Rock/gibtsnicht.mp3") == ESP_ERR_NOT_FOUND, "fehlende Datei -> NOT_FOUND");
+        CHECK(irm_control_play_path("/Rock") == ESP_ERR_NOT_FOUND, "Ordner ist keine Datei");
+        sd_mounted = 0; CHECK(irm_control_play_path("/top.mp3") == ESP_ERR_NOT_FOUND, "ohne SD-Karte -> NOT_FOUND"); sd_mounted = 1;
+        settle();
+        irm_status_t after = S();
+        CHECK(a_plays == ap && before.index == after.index && before.source == after.source, "nichts davon hat die Wiedergabe veraendert");
+
+        printf("== Dateibrowser: aus dem Radio heraus, andere Ordner\n");
+        cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO);
+        CHECK(irm_control_play_path("/top.mp3") == ESP_OK, "Datei im Wurzelordner");
+        settle();
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
+        CHECK(irm_control_item_count(IRM_SOURCE_MEDIA) == 1, "Playlist = nur top.mp3 (Unterordner werden nicht eingemischt)");
+        CHECK(irm_control_play_path("/Rock/Live/l1.mp3") == ESP_OK, "Unterordner-Datei"); settle();
+        CHECK(irm_control_item_count(IRM_SOURCE_MEDIA) == 1 && strstr(a_uri, "/Rock/Live/l1.mp3"), "Playlist des Unterordners (%s)", a_uri);
+
+        printf("== Dateibrowser: Ordner groesser als die Playlist (Limit 10)\n");
+        CHECK(irm_control_play_path("/Big/t03.mp3") == ESP_OK, "t03 liegt innerhalb der ersten 10"); settle();
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 3);
+        CHECK(irm_control_item_count(IRM_SOURCE_MEDIA) == 10, "10 Eintraege");
+        CHECK(irm_control_play_path("/Big/t14.mp3") == ESP_OK, "t14 liegt dahinter"); settle();
+        irm_control_item(IRM_SOURCE_MEDIA, 0, name, sizeof name, uri, sizeof uri);
+        CHECK(irm_control_item_count(IRM_SOURCE_MEDIA) == 1 && !strcmp(name, "t14.mp3") && strstr(a_uri, "/Big/t14.mp3"), "Rueckfall: Datei spielt allein (%s)", name);
+
+        printf("== Dateibrowser: Alle Titel (rekursiv)\n");
+        cmd(IRM_CMD_MEDIA_ALL, 0);
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
+        CHECK(irm_control_item_count(IRM_SOURCE_MEDIA) == 2 && !strcmp(a_uri, "/sdcard/a.mp3"), "Scan-Liste (Fake: a.mp3, b.mp3)");
+        sd_mounted = 0; ap = a_plays; cmd(IRM_CMD_MEDIA_ALL, 0); sd_mounted = 1;
+        CHECK(a_plays == ap, "ohne SD-Karte unveraendert");
+
+        printf("== Dateibrowser: Listing (irm_control_browse)\n");
+        irm_dl_req_t rq; char *js = NULL;
+        irm_dirlist_parse_query("", &rq);
+        CHECK(irm_control_browse(&rq, &js) == ESP_OK && js && strstr(js, "\"path\":\"/\"") && strstr(js, "{\"n\":\"Big\",\"d\":1},{\"n\":\"Rock\",\"d\":1},{\"n\":\"top.mp3\"}") && strstr(js, "\"total\":3,\"more\":false"), "Wurzel: %s", js ? js : "(NULL)");
+        free(js); js = NULL;
+        irm_dirlist_parse_query("path=%2FRock", &rq);
+        CHECK(irm_control_browse(&rq, &js) == ESP_OK && js && strstr(js, "\"total\":4") && strstr(js, "{\"n\":\"Live\",\"d\":1},{\"n\":\"a.mp3\"}") && !strstr(js, "x.txt"), "Unterordner (4 Eintraege, ohne x.txt): %s", js ? js : "(NULL)");
+        free(js); js = NULL;
+        irm_dirlist_parse_query("path=%2FBig&limit=4", &rq);
+        CHECK(irm_control_browse(&rq, &js) == ESP_OK && strstr(js, "\"total\":15,\"more\":true") && strstr(js, "t03.mp3") && !strstr(js, "t04.mp3"), "Seite 1 von /Big (4 von 15)");
+        free(js); js = NULL;
+        irm_dirlist_parse_query("path=%2FBig&limit=4&after=f%3At11.mp3", &rq);
+        CHECK(irm_control_browse(&rq, &js) == ESP_OK && strstr(js, "t12.mp3") && strstr(js, "t14.mp3") && strstr(js, "\"more\":false"), "letzte Seite ab Cursor t11 (t12-t14, more=false)");
+        free(js); js = NULL;
+        irm_dirlist_parse_query("path=%2Fgibtsnicht", &rq);
+        CHECK(irm_control_browse(&rq, &js) == ESP_ERR_NOT_FOUND && !js, "fehlender Ordner -> NOT_FOUND");
+        irm_dirlist_parse_query("", &rq); sd_mounted = 0;
+        CHECK(irm_control_browse(&rq, &js) == ESP_ERR_NOT_FOUND && !js, "ohne SD-Karte -> NOT_FOUND"); sd_mounted = 1;
+        cmd(IRM_CMD_STOP, 0);
+        snprintf(b, sizeof b, "rm -rf %s", IRM_SD_MOUNT_POINT); if (system(b)) {}
+    }
 
     CHECK(violations == 0, "Exklusivitaet: %d Verletzungen ueber den gesamten Lauf (a_plays=%d, k_plays=%d)", violations, a_plays, k_plays);
     printf("== Ergebnis: %s (%d Fehler)\n", fails ? "FEHLER" : "OK", fails);
