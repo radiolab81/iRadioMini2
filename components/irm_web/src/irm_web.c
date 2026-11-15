@@ -7,6 +7,9 @@
 #include "irm_board.h"
 #include "irm_control.h"
 #include "irm_dirlist.h"
+#if CONFIG_IRM_NETIN_ENABLE
+#include "irm_netin.h"
+#endif
 #include "irm_core.h"
 #include "irm_kiwi_uri.h"
 #include "irm_web_dir.h"
@@ -82,7 +85,7 @@ static esp_err_t h_status(httpd_req_t *req)
     static const char *const ps[] = { "idle", "connecting", "playing", "paused", "error" };
     irm_status_t s; irm_status_get(&s);
     cJSON *j = cJSON_CreateObject();
-    cJSON_AddStringToObject(j, "source", s.source == IRM_SOURCE_RADIO ? "radio" : (s.source == IRM_SOURCE_KIWI ? "kiwi" : "media"));
+    cJSON_AddStringToObject(j, "source", s.source == IRM_SOURCE_RADIO ? "radio" : (s.source == IRM_SOURCE_KIWI ? "kiwi" : (s.source == IRM_SOURCE_NET ? "net" : "media")));
     cJSON_AddStringToObject(j, "player", ps[s.player <= IRM_PLAYER_ERROR ? s.player : 0]);
     cJSON_AddNumberToObject(j, "index", s.index);
     cJSON_AddNumberToObject(j, "count", s.count);
@@ -97,6 +100,18 @@ static esp_err_t h_status(httpd_req_t *req)
         char rel[IRM_DL_PATH_MAX + 1];
         if (irm_path_strip_root(s.uri, IRM_SD_MOUNT_POINT, rel, sizeof(rel))) { irm_dirlist_utf8_clean(rel); cJSON_AddStringToObject(j, "path", rel); }
     }
+#if CONFIG_IRM_NETIN_ENABLE
+    if (s.source == IRM_SOURCE_NET) {    /* Netzwerk-Eingang: Absender (leer = wartet), Port und erwartetes Format fuer die Anleitung im Web-UI */
+        cJSON *nb = cJSON_AddObjectToObject(j, "net");
+        char peer[16];
+        strlcpy(peer, s.net_peer, sizeof(peer));
+        irm_web_utf8_clean(peer);
+        cJSON_AddStringToObject(nb, "peer", peer);
+        cJSON_AddNumberToObject(nb, "port", irm_netin_port());
+        cJSON_AddNumberToObject(nb, "rate", (double)irm_netin_rate());
+        cJSON_AddNumberToObject(nb, "underruns", (double)s.net_underruns);
+    }
+#endif
     if (s.source == IRM_SOURCE_KIWI) {   /* Abstimmung: Frequenz in Hz, Modus, Feldstaerke (nur wenn bekannt) und die Modus-Tabelle */
         cJSON *k = cJSON_AddObjectToObject(j, "kiwi");
         cJSON_AddNumberToObject(k, "freq_hz", s.kiwi_freq_hz);

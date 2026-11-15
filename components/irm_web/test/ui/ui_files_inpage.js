@@ -9,7 +9,7 @@
     '/Rock/Live': [{ n: 'l1.mp3' }],
     '/Big': big, '/leer': [],
   };
-  const srv = { source: 'radio', path: '', count: 3, index: 0, posts: [], gets: [], playFail: false };
+  const srv = { source: 'radio', path: '', count: 3, index: 0, posts: [], gets: [], playFail: false, net: { peer: '', port: 4010, rate: 48000, underruns: 0 } };
   window.__srv = srv;
   const reply = (o, status = 200) => Promise.resolve({ ok: status < 300, status, json: async () => o });
   window.fetch = (url, opt) => {
@@ -20,7 +20,7 @@
       return reply({ ok: true });
     }
     srv.gets.push(u.pathname + u.search);
-    if (p === '/api/status') return reply(Object.assign({ net: true, player: 'playing', name: 'T', source: srv.source, volume: 30, index: srv.index, count: srv.count, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }, srv.source === 'media' && srv.path ? { path: srv.path } : {}));
+    if (p === '/api/status') return reply(Object.assign({ net: true, player: 'playing', name: 'T', source: srv.source, volume: 30, index: srv.index, count: srv.count, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }, srv.source === 'media' && srv.path ? { path: srv.path } : {}, srv.source === 'net' ? { net: srv.net } : {}));
     if (p === '/api/list') return reply(['A', 'B', 'C']);
     if (p === '/api/files') {
       const path = u.searchParams.get('path'), lim = +u.searchParams.get('limit') || 30, after = u.searchParams.get('after');
@@ -98,6 +98,23 @@
     check($('fb').hidden === true && $('list').hidden === false, 'zurueck zum Radio: Browser verborgen');
     srv.path = '/gone/x.mp3'; srv.source = 'media'; await window.poll(); await sleep(200);
     check(JSON.stringify(crumbs()) === '["SD"]' && q(lastGet()).get('path') === '/', 'Ordner existiert nicht mehr (404): Rueckfall auf Wurzel');
+
+    srv.source = 'radio'; await window.poll(); await sleep(50);
+    check($('nin').hidden === true, 'Radio: Netzwerk-Panel verborgen');
+    check($('net').hidden === false && $('net').textContent.includes('WLAN'), 'WLAN-Statuszeile (id net) bleibt sichtbar: ' + $('net').textContent);
+    srv.source = 'net'; srv.count = 1; await window.poll(); await sleep(50);
+    check($('nin').hidden === false && $('fb').hidden === true && $('list').hidden === true, 'Netzwerk: Panel sichtbar, Dateibrowser und Liste verborgen');
+    check($('src').textContent === 'Netzwerk', 'Quellenknopf zeigt "Netzwerk"');
+    check($('net').hidden === false && $('net').textContent.includes('WLAN'), 'WLAN-Statuszeile bleibt auch im Netzwerk-Modus sichtbar');
+    check($('ninst').textContent === 'Wartet auf einen Sender', 'ohne Absender: ' + $('ninst').textContent);
+    const t = $('nincmd').textContent;
+    check(t.includes('Port 4010 (UDP und TCP)') && t.includes('48000 Hz') && t.includes('parec --format=s16le --rate=48000 --channels=2') && t.includes('| nc ' + location.hostname + ' 4010') && t.includes('nc -u ' + location.hostname + ' 4010') && t.includes('dd bs=1440'), 'Anleitung mit Rate, Port und Hostname');
+    srv.net = { peer: '192.168.1.7', port: 4010, rate: 48000, underruns: 3 }; await window.poll(); await sleep(50);
+    check($('ninst').textContent === 'Empfange von 192.168.1.7 · Aussetzer: 3', 'mit Absender: ' + $('ninst').textContent);
+    srv.net = { peer: EVIL, port: 4010, rate: 44100, underruns: 0 }; await window.poll(); await sleep(50);
+    check(window.__xss === undefined && !document.querySelector('#nin img') && $('ninst').textContent.includes(EVIL) && $('nincmd').textContent.includes('--rate=44100'), 'boesartiger Peer nur als Text, Rate folgt dem Status');
+    srv.source = 'radio'; await window.poll(); await sleep(50);
+    check($('nin').hidden === true && $('list').hidden === false, 'zurueck zum Radio: Panel verborgen, Liste sichtbar');
     return res;
   };
 })();

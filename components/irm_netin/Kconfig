@@ -1,0 +1,76 @@
+menu "iRadioMini2 Netzwerk-Audioeingang (irm_netin)"
+
+    config IRM_NETIN_ENABLE
+        bool "Netzwerk-Audioeingang als vierte Quelle"
+        default y
+        help
+            Empfaengt rohes PCM (signed 16 Bit little endian, stereo) per UDP oder TCP von einem PC im selben Subnetz und gibt es ueber die vorhandene
+            Ausgabesenke aus, z. B. Linux: parec --format=s16le --rate=48000 --channels=2 -d @DEFAULT_MONITOR@ | nc <IP> 4010 (siehe README).
+            Der Port ist nur offen, solange die Quelle "Netzwerk" aktiv ist. Es werden nur Absender aus dem Subnetz des Geraets angenommen und immer nur
+            einer gleichzeitig; es gibt KEIN Passwort - jedes Geraet im Subnetz kann in dieser Zeit Ton einspielen.
+
+    config IRM_NETIN_PORT
+        int "UDP- und TCP-Port"
+        depends on IRM_NETIN_ENABLE
+        range 1024 65535
+        default 4010
+
+    config IRM_NETIN_RATE
+        int "Abtastrate des Eingangsstroms (Hz)"
+        depends on IRM_NETIN_ENABLE
+        range 8000 96000
+        default 48000
+        help
+            Format des ankommenden PCM-Stroms (stereo, 16 Bit). Weicht sie von der Ausgaberate (IRM_AUDIO_OUT_RATE) ab, wird umgerechnet (Abwaertsabtastung
+            mit Tiefpass; Anteile knapp ueber der halben Ausgaberate werden nur teilweise gedaempft). Gleiche Raten sparen Rechenzeit.
+
+    config IRM_NETIN_BUFFER_MS
+        int "Jitterpuffer gesamt (ms)"
+        depends on IRM_NETIN_ENABLE
+        range 100 2000
+        default 400
+        help
+            Bei TCP bremst ein voller Puffer den Sender (Rueckstau), bei UDP werden dann Pakete verworfen. Kostet RATE*4 Byte je Sekunde RAM waehrend der Wiedergabe
+            (48 kHz, 400 ms: ca. 77 KB).
+
+    config IRM_NETIN_PREBUFFER_MS
+        int "Vorpufferung und Soll-Fuellstand (ms) = Verzoegerung gegenueber dem Sender"
+        depends on IRM_NETIN_ENABLE
+        range 40 1000
+        default 150
+        help
+            Kleiner = weniger Verzoegerung (Video/Ton-Versatz), aber empfindlicher gegen WLAN-Jitter. Muss kleiner als der Jitterpuffer sein.
+
+    config IRM_NETIN_SENDER_TIMEOUT_MS
+        int "Absender gilt nach so vielen ms ohne Daten als weg (danach darf ein anderer senden)"
+        depends on IRM_NETIN_ENABLE
+        range 500 30000
+        default 3000
+
+    config IRM_NETIN_NET_TASK_PRIO
+        int "Prioritaet des Netzwerk-Tasks"
+        depends on IRM_NETIN_ENABLE
+        range 1 20
+        default 7
+
+    config IRM_NETIN_OUT_TASK_PRIO
+        int "Prioritaet des Ausgabe-Tasks"
+        depends on IRM_NETIN_ENABLE
+        range 1 24
+        default 10
+        help
+            Sollte so hoch sein wie beim KiwiSDR-Ausgabe-Task (IRM_KIWI_OUT_TASK_PRIO), damit die Senke nie leerlaeuft.
+
+    config IRM_NETIN_OUT_TASK_CORE
+        int "Kern des Ausgabe-Tasks (-1 = egal)"
+        depends on IRM_NETIN_ENABLE
+        range -1 1
+        default -1
+
+    config IRM_NETIN_STATS_S
+        int "Statistik im Log alle n Sekunden (0 = aus)"
+        depends on IRM_NETIN_ENABLE
+        range 0 600
+        default 0
+
+endmenu

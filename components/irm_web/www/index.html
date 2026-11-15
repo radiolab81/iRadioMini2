@@ -18,6 +18,7 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 .dl li b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dl li button{flex:none;padding:.35rem .7rem}.err{color:#d33}
 .fb{border:1px solid var(--bd);border-radius:.6rem;padding:.6rem .8rem;margin:.8rem 0}
 .crumbs{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center;margin:.3rem 0}.crumbs button{padding:.2rem .55rem;font-size:.85rem}
+.fb pre{white-space:pre-wrap;word-break:break-all;font-size:.8rem;margin:.5rem 0}
 .fb ul{max-height:22rem}.fb li{display:flex;gap:.5rem;align-items:center}.fb li .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}.fb li.up{color:var(--mut)}
 .eq{display:flex;gap:.3rem;justify-content:space-between}.eq div{text-align:center;font-size:.7rem}
 .eq input{writing-mode:vertical-lr;direction:rtl;height:7rem;width:1.6rem}
@@ -34,6 +35,9 @@ li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{c
 <button onclick="c('toggle_source')" id="src">Quelle</button></div>
 <div class="row"><span class="mut">Vol</span><input id="vol" type="range" min="0" max="100" oninput="vol(this.value)"><span id="vv" class="mut"></span></div>
 <ul id="list"></ul>
+<div class="fb" id="nin" hidden><div id="ninst"></div>
+<pre id="nincmd" class="mut"></pre>
+<div class="mut">Nur Absender aus dem eigenen Subnetz, immer nur einer gleichzeitig, kein Passwort.</div></div>
 <div class="fb" id="fb" hidden><div class="mut" id="fcount"></div>
 <div class="crumbs" id="crumbs"></div>
 <div class="row"><button onclick="allTitles()" title="Gesamte SD-Karte rekursiv als Wiedergabeliste">Alle Titel</button><span class="mut" id="fmsg"></span></div>
@@ -74,7 +78,7 @@ async function poll(){try{
  const s=await (await fetch('/api/status')).json();
  $('net').textContent=s.net?'WLAN verbunden':'kein WLAN';
  $('state').textContent=s.player+(s.sample_rate?` · ${s.sample_rate/1000} kHz`:'')+(s.bitrate?` · ${Math.round(s.bitrate/1000)} kbit/s`:'');
- $('name').textContent=s.name||'–';$('src').textContent={radio:'Radio',media:'Dateien',kiwi:'KiwiSDR'}[s.source]||s.source;kiwi(s);media(s);
+ $('name').textContent=s.name||'–';$('src').textContent={radio:'Radio',media:'Dateien',kiwi:'KiwiSDR',net:'Netzwerk'}[s.source]||s.source;kiwi(s);media(s);netin(s);
  if(Date.now()-busy>1500){$('vol').value=s.volume;$('vv').textContent=s.volume+'%';
   document.querySelectorAll('.eq input').forEach((e,i)=>e.value=s.eq[i])}
  if(s.source!=='media'){
@@ -82,11 +86,19 @@ async function poll(){try{
  $('list').innerHTML=L.map((n,i)=>`<li class="${i===s.index?'cur':''}" onclick="c('goto',${i})">${n.replace(/[<&]/g,m=>m==='<'?'&lt;':'&amp;')}</li>`).join('')}
 }catch(e){$('net').textContent='keine Verbindung'}}
 
+/* ---- Netzwerk-Eingang (Quelle Netzwerk): Status + Anleitung; Absender-IP und Hostname sind Fremddaten -> nur per textContent ---- */
+function netin(s){const n=s.source==='net'&&s.net;$('nin').hidden=!n;if(!n)return;
+ const k=s.net,h=location.hostname||'<IP>';
+ $('ninst').textContent=(k.peer?'Empfange von '+k.peer:'Wartet auf einen Sender')+(k.underruns?' · Aussetzer: '+k.underruns:'');
+ const f='parec --format=s16le --rate='+k.rate+' --channels=2 -d @DEFAULT_MONITOR@';
+ const t='Port '+k.port+' (UDP und TCP) · rohes PCM s16le, stereo, '+k.rate+' Hz\nTCP:\n'+f+' | nc '+h+' '+k.port+'\nUDP (Datagramme klein halten):\n'+f+' | dd bs=1440 iflag=fullblock status=none | nc -u '+h+' '+k.port;
+ if($('nincmd').textContent!==t)$('nincmd').textContent=t}
+
 /* ---- Dateibrowser (Quelle Dateien): Ordner/Dateinamen sind Fremddaten -> nur per textContent ---- */
 const B={path:'/',cur:'',cursors:[''],page:0,lim:30,items:[],more:false,total:0,init:false};
 const dirname=p=>{const i=p.lastIndexOf('/');return i<=0?'/':p.slice(0,i)};
 const joinp=(p,n)=>(p==='/'?'':p)+'/'+n;
-function media(s){const m=s.source==='media';$('fb').hidden=!m;$('list').hidden=m;
+function media(s){const m=s.source==='media';$('fb').hidden=!m;$('list').hidden=m||s.source==='net';
  if(!m){B.init=false;return}
  B.cur=s.path||'';$('fcount').textContent=s.count+' Titel in der Wiedergabeliste';
  if(!B.init){B.init=true;go(dirname(B.cur))}else markCur()}
