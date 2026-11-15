@@ -69,3 +69,4 @@ size_t xStreamBufferReceive(StreamBufferHandle_t h, void *d, size_t n, TickType_
     s->rd = (s->rd + k) % s->size; s->used -= k; pthread_mutex_unlock(&s->m); return k;
 }
 size_t xStreamBufferBytesAvailable(StreamBufferHandle_t h) { sb_t *s = h; pthread_mutex_lock(&s->m); size_t k = s->used; pthread_mutex_unlock(&s->m); return k; }
+size_t xStreamBufferSpacesAvailable(StreamBufferHandle_t h) { sb_t *s = h; pthread_mutex_lock(&s->m); size_t k = s->size - s->used; pthread_mutex_unlock(&s->m); return k; }
