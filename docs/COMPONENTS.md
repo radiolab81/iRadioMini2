@@ -10,6 +10,9 @@ Alle Komponenten liegen in `components/`. Konfiguration: `idf.py menuconfig` →
 * `irm_dirlist_*` / `irm_path_*` – Dateibrowser-Bausteine (nur POSIX `dirent`/`stat`): Pfadprüfung für Pfade aus dem Netz, seitenweises sortiertes Listing mit Cursor (Ordner zuerst, dann Dateien, alphabetisch ohne Groß-/Kleinschreibung; Speicher nur O(Seitengröße)), JSON-Ausgabe (UTF-8-bereinigt, escaped), Query-Parser, alphabetische Ordner-Playlist (`irm_dirlist_scan_sorted`).
 Test: `components/irm_formats/test/test_formats.c`, `test_dirlist.c`.
 
+## irm_netin
+Netzwerk-Audioeingang (vierte Quelle): rohes PCM per UDP/TCP aus dem Subnetz, ein Absender nur, Jitterpuffer + Stereo-Resampler mit Driftregelung auf die Ausgabesenke. Siehe `docs/NETIN.md`. `irm_netin_policy.[ch]` (Subnetz, Absender-Miete) ist reines C.
+
 ## irm_core
 Typen (`irm_status_t`, `irm_eq_t`, `irm_source_t`, `irm_player_state_t`), Kommando-Queue (`irm_cmd_post*`, `irm_cmd_receive`),
 Status-Pub/Sub (`irm_status_update/get/subscribe`, Event-Base `IRM_EVENT`). Kommandoliste: `irm_cmd_id_t`.

@@ -25,6 +25,8 @@ Reihenfolge der Zugangsdaten: `wifi.txt` > NVS > Kconfig-Fallback.
 
 **KiwiSDR-Quelle und Serversuche:** Der Bereich „KiwiSDR-Server suchen“ im Web-UI erscheint nur im Modus *KiwiSDR*. Dieser Modus ist nur wählbar, wenn mindestens ein Eintrag existiert – lege dazu eine `kiwi.m3u` auf die SD-Karte (Vorlage: `examples/kiwi.m3u`) oder setze in `menuconfig` einen Vorgabe-Eintrag (`IRM_KIWI_DEFAULT_URI`, z. B. `kiwi://kiwi.example.org:8073/?f=7055.5usb`). Ohne einen von beiden bleibt die Quelle KiwiSDR – und damit die Serversuche – unerreichbar.
 
+**Netzwerk-Eingang (vierte Quelle):** Ein Linux-PC kann seinen Systemton als rohes PCM (s16le, stereo, 48 kHz) per `nc` an das Radio schicken, z. B. `parec --format=s16le --rate=48000 --channels=2 -d @DEFAULT_MONITOR@ | nc <IP des Radios> 4010`. Der Port (UDP und TCP) ist nur in der Quelle *Netzwerk* offen, es werden nur Absender aus dem eigenen Subnetz angenommen, immer nur einer gleichzeitig, **ohne Passwort**. Details, UDP-Variante und Einstellungen: [docs/NETIN.md](docs/NETIN.md). Abschalten: `IRM_NETIN_ENABLE=n` in `menuconfig` (dann entfällt die Quelle auch beim Durchschalten mit der Quellentaste).
+
 Die Web-Oberfläche liegt auf `http://<IP des Radios>/` (IP erscheint im Log und auf dem Display).
 Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setzen (HTTP Basic, unverschlüsselt!).
 
@@ -94,7 +96,7 @@ PC lässt sich eine Datei auch dauerhaft umwandeln: `ffmpeg -i in.m4a -c copy -m
 |---|---|
 | `GET /api/status` | Zustand (Quelle, Player, Sender, Lautstärke, Format, EQ) |
 | `GET /api/list` | Namen der aktiven Liste (Sender bzw. Dateien) |
-| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source\|media_all\|kiwi_tune\|kiwi_step\|kiwi_mode","value":n}` (`source`: 0 Radio, 1 Medien, 2 KiwiSDR; `media_all`: ganze SD-Karte rekursiv als Wiedergabeliste; `kiwi_*` siehe [KiwiSDR](docs/KIWI.md)) |
+| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source\|media_all\|kiwi_tune\|kiwi_step\|kiwi_mode","value":n}` (`source`: 0 Radio, 1 Medien, 2 KiwiSDR, 3 Netzwerk; `media_all`: ganze SD-Karte rekursiv als Wiedergabeliste; `kiwi_*` siehe [KiwiSDR](docs/KIWI.md)) |
 | `GET /api/files?path=/Ordner&after=d:Name\|f:Name&limit=30` | Dateibrowser: eine Seite des SD-Ordners (Ordner zuerst, alphabetisch), `{"path","total","more","items":[{"n","d"?}]}`; `after` = Cursor (letzter Eintrag der Vorseite), `limit` 1–40; `400` bei ungültigem Pfad, `404` ohne SD-Karte/Ordner |
 | `POST /api/files/play` | `{"path":"/Ordner/titel.mp3"}` – Datei abspielen; Wiedergabeliste = Dateien dieses Ordners (`404` wenn nicht vorhanden/keine passende Endung, `400` bei ungültigem Pfad) |
 | `POST /api/eq` | `{"gains":[10 Werte in dB, -12..12],"save":true}` bzw. `{"action":"reset"\|"save"}` |
@@ -113,6 +115,12 @@ cd ../irm_out
 gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_pcm.c test/test_pcm.c -o /tmp/tp && /tmp/tp
 # Resampler + Drift-Regler (Simulation 20 min Netz-Jitter, dauert ca. 1-2 min)
 gcc -std=c11 -Wall -Wextra -O2 -fsanitize=undefined -Iinclude src/irm_resamp.c test/test_resamp.c -lm -o /tmp/trs && /tmp/trs
+gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_resamp.c test/test_resamp_st.c -lm -o /tmp/trst && /tmp/trst   # Stereo-Resampler (Netzwerk-Eingang)
+cd ../irm_netin                # Zulassungsregeln (Subnetz, ein Absender)
+gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_netin_policy.c test/host/test_netin_policy.c -o /tmp/tnp && /tmp/tnp
+# echte Engine irm_netin.c mit UDP/TCP ueber Loopback (zweiter Absender = 127.0.0.2), ca. 25 s Echtzeit
+C=..; K=$C/irm_kiwi/test/host; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Itest/host/shim -I$K/shim -I$C/irm_core/include -I$C/irm_out/include -Iinclude \
+  src/irm_netin.c src/irm_netin_policy.c $C/irm_out/src/irm_resamp.c $K/shim_rtos.c test/host/test_netin_host.c -lpthread -lm -o /tmp/tnh && ASAN_OPTIONS=detect_leaks=0 /tmp/tnh
 ```
 
 KiwiSDR (alles auf dem Host, ohne ESP-IDF; `KC` = `components/kiwi_core`, `PC` = Pfad zu `mock_kiwi.py` aus dem Projekt ESP32_KiwiSDR):
@@ -140,9 +148,9 @@ gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=2008
   && ASAN_OPTIONS=detect_leaks=0 /tmp/twd ../irm_dir/test/kiwisdr_sample.js
 (cd test/ui && npm install jsdom && node test_ui.js && node test_ui_files.js)   # Oberflaeche in jsdom gegen simulierte REST-API (u. a. XSS mit boesartigen Servernamen; test_ui_files.js = Dateibrowser)
 # alternativ der Dateibrowser-Test in echtem Chromium: (cd test/ui && node test_ui_files_pw.js)   # benoetigt playwright
-cd ../irm_control/test/host   # echtes irm_control.c: drei Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
+cd ../irm_control/test/host   # echtes irm_control.c: vier Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
 I=../../../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -DIRM_SD_MOUNT_POINT='"/tmp/irm_sd_test"' -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include \
-  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include \
+  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_netin/include -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include \
   $C/irm_control/src/irm_control.c $C/irm_dir/src/irm_dir_query.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_dirlist.c $C/irm_formats/src/irm_kiwi_uri.c $(ls $C/kiwi_dir/src/*.c | grep -v kiwi_dir_cmd.c) $C/kiwi_core/src/*.c $I/../shim_rtos.c test_control_host.c \
   -lpthread -lm -o /tmp/tch && ASAN_OPTIONS=detect_leaks=0 /tmp/tch
 ```
