@@ -21,6 +21,9 @@
 #if CONFIG_IRM_DIR_ENABLE
 #include "irm_dir.h"
 #endif
+#if CONFIG_IRM_NETIN_ENABLE
+#include "irm_netin.h"
+#endif
 
 static const char *TAG = "irm_ctrl";
 
@@ -39,6 +42,7 @@ static struct {
     int64_t            persist_deadline_us;  /* 0 = nichts offen */
     bool               dirty_vol, dirty_idx, dirty_kiwi;
     bool               kiwi_ok;      /* irm_kiwi initialisiert */
+    bool               net_ok;       /* irm_netin initialisiert (Quelle Netzwerk verfuegbar) */
     bool               dyn_valid;    /* "Direkteintrag": im Verzeichnis gewaehlter Server, steht hinter den Favoriten (virtueller Index = Anzahl Favoriten) */
     char               dyn_name[IRM_NAME_MAX_LEN], dyn_uri[IRM_URI_MAX_LEN];
     char               pending_path[IRM_DL_PATH_MAX + 1];   /* Ziel von IRM_CMD_MEDIA_PLAY_PATH (list_lock) */
@@ -73,12 +77,15 @@ static const char *item_name(irm_source_t s, size_t idx) { return is_dyn(s, idx)
 /* Radio und KiwiSDR sind Live-Quellen (Netz noetig, Pause = trennen, Fehler -> Wiederholen); nur Dateien sind abspielbar/pausierbar. */
 static bool is_live(irm_source_t s) { return s != IRM_SOURCE_MEDIA; }
 
-/* Beide Engines teilen sich die Ausgabesenke: vor jedem Start muss die jeweils andere freigegeben sein. */
+/* Alle Engines teilen sich die Ausgabesenke: vor jedem Start muss jede andere freigegeben sein. */
 static void stop_engines(void)
 {
     irm_audio_stop();
 #if CONFIG_IRM_KIWI_ENABLE
     irm_kiwi_stop();
+#endif
+#if CONFIG_IRM_NETIN_ENABLE
+    irm_netin_stop();
 #endif
 }
 
@@ -131,6 +138,18 @@ static void start_current(void)
     if (is_live(c.source) && !c.net_up) { ESP_LOGI(TAG, "warte auf Netzwerk"); stop_engines(); set_player(IRM_PLAYER_IDLE); return; }
     set_player(IRM_PLAYER_CONNECTING);
     esp_err_t e;
+#if CONFIG_IRM_NETIN_ENABLE
+    if (c.source == IRM_SOURCE_NET) {            /* Netzwerk-Eingang: Ports und Senke oeffnen, Absender wird vom PC aus verbunden */
+        irm_audio_stop();
+#if CONFIG_IRM_KIWI_ENABLE
+        irm_kiwi_stop();
+#endif
+        e = irm_netin_play();
+        if (e != ESP_OK) { set_player(IRM_PLAYER_ERROR); goto retry; }
+        return;
+    }
+    irm_netin_stop();                            /* Port schliessen und Senke freigeben, bevor Radio/Kiwi/Datei sie belegt */
+#endif
 #if CONFIG_IRM_KIWI_ENABLE
     if (c.source == IRM_SOURCE_KIWI) {
         irm_audio_stop();                       /* Senke freigeben, dann die Kiwi-Sitzung starten */
@@ -273,6 +292,8 @@ static bool switch_source(irm_source_t src)
     if (src == c.source) return true;
     if (src == IRM_SOURCE_MEDIA) {
         if (!media_load_all()) return false;
+    } else if (src == IRM_SOURCE_NET) {
+        if (!c.net_ok) { ESP_LOGW(TAG, "Netzwerk-Eingang nicht verfuegbar (deaktiviert)"); return false; }
     } else if (src == IRM_SOURCE_KIWI) {
         if (!c.kiwi_ok || count_of(IRM_SOURCE_KIWI) == 0) { ESP_LOGW(TAG, "KiwiSDR: keine Eintraege (kiwi.m3u fehlt/leer oder deaktiviert)"); return false; }
     }
@@ -291,7 +312,7 @@ static void cycle_source(void)
 static void on_audio(const irm_cmd_t *cmd)
 {
     /* Nachzuegler der anderen Engine (z. B. Fehler einer gerade beendeten Kiwi-Sitzung nach dem Wechsel zum Radio) ignorieren */
-    if ((cmd->audio.origin == 1) != (c.source == IRM_SOURCE_KIWI)) return;
+    if (cmd->audio.origin != (c.source == IRM_SOURCE_KIWI ? 1 : (c.source == IRM_SOURCE_NET ? 2 : 0))) return;
     irm_status_t st; irm_status_get(&st);
     switch ((irm_audio_evt_type_t)cmd->audio.type) {
     case IRM_AUDIO_EVT_INFO: {
@@ -482,6 +503,22 @@ static void kiwi_cb(const irm_kiwi_evt_t *e, void *ctx)
 }
 
 
+#if CONFIG_IRM_NETIN_ENABLE
+/* irm_netin-Ereignisse ebenso (origin = 2); RUNNING = bereit, auch ohne Absender */
+static void netin_cb(const irm_netin_evt_t *e, void *ctx)
+{
+    (void)ctx;
+    irm_cmd_t m = { .id = IRM_CMD_INTERNAL_AUDIO_EVENT };
+    m.audio.origin = 2;
+    if (e->type == IRM_NETIN_EVT_RUNNING) {
+        m.audio.type = IRM_AUDIO_EVT_INFO; m.audio.rate = irm_netin_rate(); m.audio.ch = 2; m.audio.bits = 16; m.audio.bitrate = irm_netin_rate() * 32u;
+        irm_cmd_post(&m, 0);
+        m.audio.type = IRM_AUDIO_EVT_RUNNING;
+    } else m.audio.type = IRM_AUDIO_EVT_ERROR;
+    irm_cmd_post(&m, 0);
+}
+#endif
+
 /* kiwi.m3u laden; ungueltige Zeilen werden gemeldet und ausgelassen, damit sie spaeter nicht endlos "wiederholt" werden */
 static void load_kiwi_list(void)
 {
@@ -556,6 +593,14 @@ esp_err_t irm_control_start(void)
         c.index[IRM_SOURCE_KIWI] = kn ? (cfg.kiwi_station >= 0 && cfg.kiwi_station < kn ? cfg.kiwi_station : 0) : -1;
         ESP_LOGI(TAG, "KiwiSDR: %d Eintraege", kn);
     } else ESP_LOGW(TAG, "KiwiSDR-Quelle nicht verfuegbar");
+#endif
+#if CONFIG_IRM_NETIN_ENABLE
+    c.lists[IRM_SOURCE_NET] = irm_playlist_new(1);      /* ein virtueller Eintrag, damit Status/Anzeige/Web wie bei den anderen Quellen funktionieren */
+    if (c.lists[IRM_SOURCE_NET] && irm_playlist_add(c.lists[IRM_SOURCE_NET], "net://input", "Netzwerk-Eingang") &&
+        irm_netin_init(irm_board_sink(), netin_cb, NULL) == ESP_OK) {
+        c.net_ok = true;
+        c.index[IRM_SOURCE_NET] = 0;
+    } else ESP_LOGW(TAG, "Netzwerk-Eingang nicht verfuegbar");
 #endif
     irm_audio_set_volume(c.volume);
     irm_audio_set_eq(&c.eq);

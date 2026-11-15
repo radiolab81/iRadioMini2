@@ -6,6 +6,7 @@
 void irm_view_title(const irm_status_t *st, char *out, size_t n)
 {
     if (!st->net_up && st->source != IRM_SOURCE_MEDIA) snprintf(out, n, "Kein WLAN");
+    else if (st->source == IRM_SOURCE_NET) snprintf(out, n, "%s", st->net_peer[0] ? st->net_peer : "Warte auf Sender");   /* statt des festen Eintragsnamens */
     else if (st->index < 0) snprintf(out, n, st->source == IRM_SOURCE_RADIO ? "Keine Sender" : (st->source == IRM_SOURCE_KIWI ? "Keine Kiwi-Server" : "Keine Dateien"));
     else snprintf(out, n, "%s", st->name[0] ? st->name : st->uri);
 }

@@ -39,7 +39,7 @@ typedef struct {
     union {
         int32_t  value;
         irm_eq_t eq;
-        struct { int32_t type; uint32_t rate; uint8_t ch; uint8_t bits; uint8_t origin; /* 0 = irm_audio, 1 = irm_kiwi */ uint32_t bitrate; } audio;
+        struct { int32_t type; uint32_t rate; uint8_t ch; uint8_t bits; uint8_t origin; /* 0 = irm_audio, 1 = irm_kiwi, 2 = irm_netin */ uint32_t bitrate; } audio;
     };
 } irm_cmd_t;
 

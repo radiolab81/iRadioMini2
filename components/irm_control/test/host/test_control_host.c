@@ -15,6 +15,7 @@
 #include "irm_core.h"
 #include "irm_files.h"
 #include "irm_kiwi.h"
+#include "irm_netin.h"
 #include "irm_dir.h"
 #include "irm_playlist.h"
 #include "irm_settings.h"
@@ -53,24 +54,31 @@ esp_err_t esp_timer_stop(esp_timer_handle_t h) { h->armed = 0; return ESP_OK; }
 static void fire_timer(void) { assert(g_timer.armed); g_timer.armed = 0; g_timer.cb(g_timer.arg); }
 
 /* ---------- Fake-Engines mit Exklusivitaetspruefung ---------- */
-static volatile int a_active, k_active, violations;
-static char a_uri[256], k_uri[256]; static int k_reset, a_plays, k_plays, a_stops, k_stops, a_pauses;
+static volatile int a_active, k_active, n_active, violations;
+static char a_uri[256], k_uri[256]; static int k_reset, a_plays, k_plays, a_stops, k_stops, a_pauses, n_plays, n_stops;
 static irm_audio_cb_t a_cb; static irm_kiwi_cb_t k_cb;
 static uint32_t k_tune_f; static int k_step, k_mode = -99; static int k_tunes;
 esp_err_t irm_audio_init(esp_codec_dev_handle_t c, irm_out_sink_t *s, irm_audio_cb_t cb, void *x) { (void)c; (void)s; (void)x; a_cb = cb; return ESP_OK; }
-esp_err_t irm_audio_play(const char *u) { if (k_active) { violations++; printf("  FEHLER: irm_audio_play bei aktiver Kiwi-Sitzung\n"); } a_active = 1; a_plays++; strcpy(a_uri, u); return ESP_OK; }
+esp_err_t irm_audio_play(const char *u) { if (k_active || n_active) { violations++; printf("  FEHLER: irm_audio_play bei aktiver Kiwi-Sitzung/Netzwerk-Eingang\n"); } a_active = 1; a_plays++; strcpy(a_uri, u); return ESP_OK; }
 esp_err_t irm_audio_stop(void) { a_active = 0; a_stops++; return ESP_OK; }
 esp_err_t irm_audio_pause(void) { a_pauses++; return ESP_OK; }
 esp_err_t irm_audio_resume(void) { return ESP_OK; }
 esp_err_t irm_audio_set_volume(uint8_t p) { (void)p; return ESP_OK; }
 esp_err_t irm_audio_set_eq(const irm_eq_t *e) { (void)e; return ESP_OK; }
 esp_err_t irm_kiwi_init(irm_out_sink_t *s, irm_kiwi_cb_t cb, void *x) { (void)s; (void)x; k_cb = cb; return ESP_OK; }
-esp_err_t irm_kiwi_play(const char *u, bool reset) { if (a_active) { violations++; printf("  FEHLER: irm_kiwi_play bei aktiver Audio-Pipeline\n"); } k_active = 1; k_plays++; strcpy(k_uri, u); k_reset = reset; return ESP_OK; }
+esp_err_t irm_kiwi_play(const char *u, bool reset) { if (a_active || n_active) { violations++; printf("  FEHLER: irm_kiwi_play bei aktiver Audio-Pipeline/Netzwerk-Eingang\n"); } k_active = 1; k_plays++; strcpy(k_uri, u); k_reset = reset; return ESP_OK; }
 esp_err_t irm_kiwi_stop(void) { k_active = 0; k_stops++; return ESP_OK; }
+static irm_netin_cb_t n_cb;
+esp_err_t irm_netin_init(irm_out_sink_t *s, irm_netin_cb_t cb, void *x) { (void)s; (void)x; n_cb = cb; return ESP_OK; }
+esp_err_t irm_netin_play(void) { if (a_active || k_active) { violations++; printf("  FEHLER: irm_netin_play bei aktiver Audio-Pipeline/Kiwi-Sitzung\n"); } n_active = 1; n_plays++; return ESP_OK; }
+esp_err_t irm_netin_stop(void) { n_active = 0; n_stops++; return ESP_OK; }
+uint16_t irm_netin_port(void) { return 4010; }
+uint32_t irm_netin_rate(void) { return 48000; }
 esp_err_t irm_kiwi_tune(uint32_t f, const char *m) { (void)m; k_tune_f = f; k_tunes++; return ESP_OK; }
 esp_err_t irm_kiwi_tune_step(int32_t d) { k_step = d; k_tunes++; return ESP_OK; }
 esp_err_t irm_kiwi_set_mode_index(int i) { k_mode = i; k_tunes++; return ESP_OK; }
 static void audio_evt(irm_audio_evt_type_t t) { irm_audio_evt_t e = { .type = t, .sample_rate = 44100, .channels = 2, .bits = 16, .bitrate = 128000 }; a_cb(&e, NULL); }
+static void net_evt(irm_netin_evt_type_t t) { irm_netin_evt_t e = { .type = t, .err = -1 }; n_cb(&e, NULL); }
 static void kiwi_evt(irm_kiwi_evt_type_t t) { irm_kiwi_evt_t e = { .type = t, .sample_rate = 12000, .bitrate = 192000, .err = -2 }; k_cb(&e, NULL); }
 
 /* ---------- Fake-Board/-Dateien/-Einstellungen ---------- */
@@ -122,7 +130,7 @@ static void set_kiwi_status(uint32_t f, const char *mode) { irm_status_t t; irm_
 /* ---------- Hilfen ---------- */
 static void settle(void) { for (int i = 0; i < 100; i++) { usleep(5000); pthread_mutex_lock(&qm); int n = qn; pthread_mutex_unlock(&qm); if (!n && i > 4) break; } usleep(60000); }
 static void cmd(irm_cmd_id_t id, int32_t v) { irm_cmd_post_id(id, v); settle(); }
-static const char *srcname(irm_source_t s) { return s == IRM_SOURCE_RADIO ? "radio" : (s == IRM_SOURCE_MEDIA ? "media" : "kiwi"); }
+static const char *srcname(irm_source_t s) { return s == IRM_SOURCE_RADIO ? "radio" : (s == IRM_SOURCE_MEDIA ? "media" : (s == IRM_SOURCE_NET ? "net" : "kiwi")); }
 static const char *pl_name(irm_player_state_t p) { static const char *n[] = { "idle", "connecting", "playing", "paused", "error" }; return n[p]; }
 #define EXPECT_STATE(src, pl, idx) do { irm_status_t s_ = S(); CHECK(s_.source == (src) && s_.player == (pl) && s_.index == (idx), "Zustand: %s/%s/#%d (erwartet %s/%s/#%d)", srcname(s_.source), pl_name(s_.player), s_.index, srcname(src), pl_name(pl), (int)(idx)); } while (0)
 
@@ -146,7 +154,7 @@ int main(void)
     audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
     EXPECT_STATE(IRM_SOURCE_RADIO, IRM_PLAYER_PLAYING, 1);
 
-    printf("== Quellen reihum: Radio -> Medien -> KiwiSDR -> Radio\n");
+    printf("== Quellen reihum: Radio -> Medien -> KiwiSDR -> Netzwerk -> Radio\n");
     cmd(IRM_CMD_TOGGLE_SOURCE, 0);
     EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
     CHECK(a_active && !k_active && strstr(a_uri, "a.mp3"), "Medien-Datei laeuft ueber irm_audio");
@@ -203,12 +211,48 @@ int main(void)
     usleep(400000); settle();
     CHECK(saved_kiwi == 2 && saved_radio == -1, "Kiwi-Eintrag #2 persistiert (kws=%d), Radio-Eintrag unberuehrt", saved_kiwi);
 
-    printf("== Zurueck zum Radio: Kiwi-Sitzung wird beendet, Nachzuegler ignoriert\n");
+    printf("== Netzwerk-Eingang: Kiwi -> Netzwerk\n");
+    {
+        const int np = n_plays, ks0 = k_stops;
+        cmd(IRM_CMD_TOGGLE_SOURCE, 0);
+        EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_CONNECTING, 0);
+        CHECK(n_active && !a_active && !k_active && n_plays == np + 1 && k_stops > ks0, "Kiwi-Sitzung beendet, Netzwerk-Eingang gestartet");
+        CHECK(irm_control_item_count(IRM_SOURCE_NET) == 1, "ein virtueller Eintrag");
+        irm_status_t s0 = S();
+        CHECK(!strcmp(s0.name, "Netzwerk-Eingang") && s0.index == 0 && s0.count == 1, "Name/Index im Status: %s #%d von %d", s0.name, (int)s0.index, (int)s0.count);
+        CHECK(s0.net_peer[0] == 0 && s0.kiwi_freq_hz == 0, "Peer leer, Kiwi-Felder zurueckgesetzt");
+        kiwi_evt(IRM_KIWI_EVT_ERROR); kiwi_evt(IRM_KIWI_EVT_RUNNING); audio_evt(IRM_AUDIO_EVT_ERROR); audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+        EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_CONNECTING, 0);
+        CHECK(!g_timer.armed, "Ereignisse der anderen Engines (origin 0/1) ignoriert");
+        net_evt(IRM_NETIN_EVT_RUNNING); settle();
+        EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_PLAYING, 0);
+        s0 = S();
+        CHECK(s0.sample_rate == 48000 && s0.channels == 2 && s0.bits == 16 && s0.bitrate == 48000u * 32u, "Format 48 kHz stereo 16 bit (%u/%u/%u)", s0.sample_rate, s0.channels, s0.bits);
+        net_evt(IRM_NETIN_EVT_ERROR); settle();
+        EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_ERROR, 0);
+        CHECK(g_timer.armed && g_timer.delay_us == 1000000, "Fehler: Retry-Timer 1 s (Live-Quelle)");
+        fire_timer(); settle();
+        EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_CONNECTING, 0);
+        CHECK(n_plays == np + 2 && n_active, "Wiederholen oeffnet den Eingang neu");
+        net_evt(IRM_NETIN_EVT_RUNNING); settle();
+        cmd(IRM_CMD_PAUSE, 0);
+        EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_PAUSED, 0);
+        CHECK(!n_active && !a_active && !k_active, "Pause schliesst den Port (wie bei den anderen Live-Quellen)");
+        cmd(IRM_CMD_PLAY, 0);
+        CHECK(n_active, "Fortsetzen oeffnet ihn wieder");
+        net_evt(IRM_NETIN_EVT_RUNNING); settle();
+        cmd(IRM_CMD_NEXT, 0);
+        EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_CONNECTING, 0);
+        CHECK(n_active, "NEXT bei nur einem Eintrag startet ihn neu, Quelle bleibt");
+        net_evt(IRM_NETIN_EVT_RUNNING); settle();
+    }
+
+    printf("== Zurueck zum Radio: Netzwerk-Eingang bzw. Kiwi-Sitzung wird beendet, Nachzuegler ignoriert\n");
     int ks = k_stops;
     cmd(IRM_CMD_TOGGLE_SOURCE, 0);
     EXPECT_STATE(IRM_SOURCE_RADIO, IRM_PLAYER_CONNECTING, 1);
-    CHECK(a_active && !k_active && k_stops > ks, "irm_kiwi_stop vor irm_audio_play");
-    kiwi_evt(IRM_KIWI_EVT_ERROR); kiwi_evt(IRM_KIWI_EVT_RUNNING); settle();     /* Nachzuegler der beendeten Sitzung */
+    CHECK(a_active && !k_active && !n_active && k_stops > ks, "irm_netin_stop/irm_kiwi_stop vor irm_audio_play");
+    kiwi_evt(IRM_KIWI_EVT_ERROR); kiwi_evt(IRM_KIWI_EVT_RUNNING); net_evt(IRM_NETIN_EVT_ERROR); net_evt(IRM_NETIN_EVT_RUNNING); settle();     /* Nachzuegler der beendeten Sitzungen */
     EXPECT_STATE(IRM_SOURCE_RADIO, IRM_PLAYER_CONNECTING, 1);
     CHECK(!g_timer.armed, "kein Wiederholen durch Nachzuegler");
     audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
@@ -220,6 +264,8 @@ int main(void)
     cmd(IRM_CMD_TOGGLE_SOURCE, 0);
     EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 2);
     CHECK(!a_active && k_active, "Radio -> KiwiSDR direkt");
+    cmd(IRM_CMD_TOGGLE_SOURCE, 0);
+    EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_CONNECTING, 0);
     cmd(IRM_CMD_TOGGLE_SOURCE, 0);
     EXPECT_STATE(IRM_SOURCE_RADIO, IRM_PLAYER_CONNECTING, 1);
     cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_KIWI);
@@ -236,6 +282,24 @@ int main(void)
     cmd(IRM_CMD_STOP, 0);
     EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_IDLE, 2);
     CHECK(!k_active && !a_active, "STOP beendet beide Engines");
+
+    printf("== Netzwerk-Eingang: direkt aus dem Radio, Netz weg und wieder da\n");
+    cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO);
+    EXPECT_STATE(IRM_SOURCE_RADIO, IRM_PLAYER_CONNECTING, 1);
+    cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_NET);
+    EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_CONNECTING, 0);
+    CHECK(n_active && !a_active && !k_active, "Radio -> Netzwerk: Pipeline gestoppt, Eingang offen");
+    cmd(IRM_CMD_INTERNAL_NET_CHANGED, 0);
+    CHECK(n_active && S().player == IRM_PLAYER_CONNECTING, "WLAN weg: Eingang bleibt offen (die lwIP-Sockets ueberleben den Reconnect)");
+    net_evt(IRM_NETIN_EVT_ERROR); settle();
+    EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_ERROR, 0);
+    { const int np1 = n_plays; cmd(IRM_CMD_INTERNAL_NET_CHANGED, 1);
+      CHECK(n_plays == np1 + 1 && S().player == IRM_PLAYER_CONNECTING, "WLAN wieder da (nach Fehler): Eingang wird neu geoeffnet"); }
+    cmd(IRM_CMD_STOP, 0);
+    EXPECT_STATE(IRM_SOURCE_NET, IRM_PLAYER_IDLE, 0);
+    CHECK(!n_active && !a_active && !k_active, "STOP beendet alle drei Engines");
+    cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO);
+    CHECK(a_active && !n_active, "zurueck zum Radio");
 
     printf("== Verzeichnis: Server waehlen (Direkteintrag)\n");
     sd_mounted = 1; cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO);
