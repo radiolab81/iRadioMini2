@@ -1,3 +1,37 @@
+# iRadioMini2 – Netzwerk-Eingang (2026-11-15)
+
+Neu gegenüber dem Dateibrowser-Release:
+* **Vierte Quelle „Netzwerk“:** Ein PC im selben Subnetz schickt rohes PCM (s16le, stereo, Standard 48 kHz) per `nc`/UDP/TCP an Port 4010; das Radio gibt es über die vorhandene Ausgabe aus (`docs/NETIN.md`). Port nur in dieser Quelle offen, nur Absender aus dem eigenen Subnetz, immer nur einer gleichzeitig, **kein Passwort**.
+* **Komponente `irm_netin`** (Engine nach dem Muster von `irm_kiwi`, `Kconfig`: Port, Rate, Puffer, Vorpufferung, Absender-Timeout, Prioritäten); Zulassungsregeln `irm_netin_policy` (rein C).
+* **`irm_out`:** Stereo-Resampler `irm_resamp_st_*` mit Driftregelung (±1000 ppm), Abwärtsabtastung mit Tiefpass (z. B. 48 → 44,1 kHz).
+* **Steuerung/Anzeige/Web:** `IRM_SOURCE_NET` (4 Quellen; die Quellentaste schaltet jetzt Radio → Dateien → KiwiSDR → Netzwerk → Radio, abschaltbar mit `IRM_NETIN_ENABLE=n`), Status `net_peer`/`net_underruns`, Display-Titel „Warte auf Sender“/Absender-IP, Web-UI mit Status und fertigen Sender-Befehlen, `/api/status` mit Block `net`.
+* **Tests:** Engine gegen echte Sockets (UDP/TCP, krumme TCP-Stücke, Rückstau, zweiter Absender 127.0.0.2, fremdes Subnetz, 44,1-kHz-Senke), Policy, Stereo-Resampler, `irm_control` (Quellenzyklus, Retry, Nachzügler), Web-UI in Chromium. Dabei gefundener und behobener Fehler: beim Absenderwechsel gingen bis zu 400 ms der ersten Daten verloren.
+
+---
+
+# iRadioMini2 – Dateibrowser (2026-11-14)
+
+Neu gegenüber dem Zwischenrelease:
+* **Dateibrowser im Web-UI (Quelle Dateien):** Ordner und Unterordner anzeigen, hinein- und hinausgehen (Breadcrumb, „‥“), Datei antippen = abspielen, laufende Datei hervorgehoben, seitenweise Anzeige (‹ ›). Die Wiedergabeliste besteht aus den Dateien des gewählten Ordners (alphabetisch); Weiter/Zurück und Titelende folgen darin (auch an Tasten/Display). Button **Alle Titel** = bisherige rekursive Liste der ganzen SD-Karte (bleibt die Liste beim Wechsel zur Quelle Dateien).
+* **REST:** `GET /api/files?path=&after=&limit=`, `POST /api/files/play {"path"}`, neues Kommando `media_all`; `/api/status` liefert in der Quelle Dateien zusätzlich `path`.
+* **Firmware:** neue Komponente-Bausteine `irm_dirlist` (irm_formats, rein C), `irm_control_browse()`/`irm_control_play_path()`, Kommandos `IRM_CMD_MEDIA_ALL`/`IRM_CMD_MEDIA_PLAY_PATH`. `irm_web` benötigt zusätzlich `irm_board` (SD-Mountpunkt).
+* **Sicherheit:** Pfade aus dem Netz werden normalisiert und geprüft (`..`, `\`, Steuerzeichen, Überlänge abgelehnt), nur Dateien mit Endungen aus `IRM_MEDIA_EXTENSIONS`; Namen in der Oberfläche nur als Text (kein XSS).
+* **Speicher:** Listing mit Cursor statt Vollscan – Heapbedarf nur O(Seitengröße) (≈4 KB je Seite), Handler-Stack unverändert.
+* **Grenzen:** Ordner mit mehr als `IRM_MAX_MEDIA_FILES` Dateien: Datei jenseits dieser Grenze spielt allein (ohne Weiter/Zurück im Ordner). Namen ≥ 100 Bytes und versteckte Einträge werden nicht angezeigt. FAT ohne LFN zeigt 8.3-Namen (`CONFIG_FATFS_LFN_*` prüfen).
+* **Tests:** `irm_formats/test/test_dirlist.c` (Pfade, Cursor-Paging, JSON), `irm_control` Host-Test um Dateibrowser-Abschnitte erweitert (jetzt mit `-DIRM_SD_MOUNT_POINT`, siehe README), UI-Test `test_ui_files.js` (jsdom) / `test_ui_files_pw.js` (Chromium).
+
+---
+
+# iRadioMini2 – Zwischenrelease (2026-11-14)
+
+Änderungen gegenüber v2:
+* **Web-UI:** Der Bereich „KiwiSDR-Server suchen“ wird nur noch im Modus *KiwiSDR* angezeigt (Radio und Dateien: verborgen).
+  Der Modus KiwiSDR ist nur wählbar, wenn ein Eintrag existiert → `kiwi.m3u` auf der SD-Karte (`examples/kiwi.m3u`) oder `IRM_KIWI_DEFAULT_URI` in `menuconfig`; siehe README („Schnellstart“).
+* **Test:** `components/irm_web/test/ui/test_ui.js` an das neue Verhalten angepasst.
+* Keine Änderungen an Firmware (C-Code), Kconfig oder REST-API.
+
+---
+
 # iRadioMini2 v2
 
 Neuaufbau von iRadioMini für **ESP-IDF 6.1** (Ziel: ESP32).
