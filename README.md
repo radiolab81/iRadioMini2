@@ -1,8 +1,7 @@
 # iRadioMini2
 
 Baukasten für ESP32-Internetradios auf **ESP-IDF 6.1** – Neuaufbau von iRadioMini (ESP-IDF 4.x / ESP-ADF 2.x https://github.com/radiolab81/iRadioMini).
-Streaming (HTTP/HTTPS, MP3/AAC/…), Mediaplayer von SD-Karte, KiwiSDR-support, 10-Band-Equalizer, Web-UI/REST-API,
-Taster und Drehgeber, austauschbare Anzeige-Backends.
+Streaming (HTTP/HTTPS, MP3/AAC/…), Mediaplayer von SD-Karte, KiwiSDR-support, PCM-Audio-RX, 10-Band-Equalizer, Web-UI/REST-API, Taster und Drehgeber, austauschbare Anzeige-Backends.
 
 ## Schnellstart
 
@@ -65,8 +64,7 @@ Dokumentation: [Architektur](docs/ARCHITECTURE.md) · [Komponenten-Referenz](doc
 | **Interner DAC** | GPIO25 (links) / GPIO26 (rechts) | Software | 8 Bit mit Dither; Stereo oder Mono auf beiden Pins; Pegel ca. 0–3,3 V, Gleichanteil per Koppelkondensator entfernen |
 
 Das entspricht `USE_INTERNAL_AUDIODAC` aus iRadioMini V1 (dort nur PDM) und ergänzt den DAC-Pfad. Beide Wege teilen sich dieselbe
-GMF-Pipeline (Decoder → Resampler → Equalizer); nur das letzte Element unterscheidet sich. Nicht hardwaregetestet; die Qualität ist durch
-8 Bit bzw. PDM-Auflösung begrenzt. Der interne DAC läuft über I²S0-DMA und schließt eine gleichzeitige I²S-Codec-Ausgabe aus.
+GMF-Pipeline (Decoder → Resampler → Equalizer); nur das letzte Element unterscheidet sich. Die Qualität ist durch 8 Bit bzw. PDM-Auflösung begrenzt. Der interne DAC läuft über I²S0-DMA und schließt eine gleichzeitige I²S-Codec-Ausgabe aus.
 
 ## AudioKit (ES8388): Lautsprecher und Kopfhörer
 
