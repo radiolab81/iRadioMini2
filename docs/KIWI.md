@@ -43,6 +43,10 @@ Die Datenbank liegt kompakt (ca. 120 Byte je Server) in der Flash-Partition `kiw
    sonst gilt `IRM_DIR_DEFAULT_FREQ_KHZ`/`IRM_DIR_DEFAULT_MODE`. Liegt die Frequenz außerhalb des gemeldeten Empfangsbereichs des Servers, wird sie an dessen Rand gezogen.
 5. Der gewählte Server ist ein **Direkteintrag** hinter den Favoriten (Next/Prev laufen auch dorthin); der nächste „Hören“-Klick ersetzt ihn.
    **„★ Favorit“** schreibt Server + eingestellte Frequenz/Modus in `/kiwi.m3u` (SD-Karte nötig; doppelte Einträge werden nicht angelegt).
+   Der Name des Favoriten steht im **Namensfeld** neben dem Knopf (vorbelegt mit dem Namen des laufenden Eintrags, frei editierbar, höchstens 63 Bytes) – nach dem Umtunen also einfach einen passenden Namen eintragen.
+6. **Favoriten löschen:** In der Liste trägt jeder gespeicherte Favorit ein **✕** (nach Rückfrage wird er aus `/kiwi.m3u` und der Liste entfernt; alle anderen Zeilen der Datei bleiben unverändert).
+   Läuft der Favorit gerade, bleibt die Sitzung bestehen und er spielt als Direkteintrag weiter. Der Direkteintrag selbst hat kein ✕ (der nächste „Hören“-Klick ersetzt ihn).
+   Ein nur per `IRM_KIWI_DEFAULT_URI` vorgegebener Eintrag steht nicht in der Datei und kehrt nach einem Neustart zurück, solange `/kiwi.m3u` keinen gültigen Eintrag enthält.
 
 REST (alle mit Basic Auth, falls gesetzt):
 
@@ -53,7 +57,8 @@ REST (alle mit Basic Auth, falls gesetzt):
 | `GET /api/dir/countries` | `[{id, name, n}]`, alphabetisch |
 | `POST /api/dir/update {"force":true}` | Update starten: `202` ok · `409` läuft · `429` zu früh (`retry_in_s`) · `501` keine Partition · `503` kein Speicher |
 | `POST /api/dir/connect {"host":"…","port":8073}` | Server aus dem Verzeichnis hören (Host/Port statt Index: bleibt nach einem Update gültig; `404` wenn nicht in der Liste) |
-| `POST /api/cmd {"cmd":"kiwi_fav"}` | aktuellen Eintrag als Favorit speichern |
+| `POST /api/cmd {"cmd":"kiwi_fav","name":"…"}` | aktuellen Eintrag als Favorit speichern; `name` optional (ohne: Name des laufenden Eintrags) |
+| `POST /api/cmd {"cmd":"kiwi_del","value":<Listenindex>}` | Favorit aus `kiwi.m3u` löschen (`400` ohne gültigen Index; Favoriten sind die Einträge `0 … kiwi.favs-1` der Liste, `favs` steht in `GET /api/status`) |
 
 Hinweise: Namen/Orte stammen vom Verzeichnisdienst (fremde Daten) – das JSON wird zu gültigem UTF-8 bereinigt, die Oberfläche gibt sie nur als Text aus.
 Das Verzeichnis kennt nur Server, die **ohne TLS und ohne Passwort** erreichbar sind (offline/https/private werden nicht angeboten). Der Dienst hinter `IRM_DIR_URL`
