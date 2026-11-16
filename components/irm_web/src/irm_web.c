@@ -115,6 +115,7 @@ static esp_err_t h_status(httpd_req_t *req)
     if (s.source == IRM_SOURCE_KIWI) {   /* Abstimmung: Frequenz in Hz, Modus, Feldstaerke (nur wenn bekannt) und die Modus-Tabelle */
         cJSON *k = cJSON_AddObjectToObject(j, "kiwi");
         cJSON_AddNumberToObject(k, "freq_hz", s.kiwi_freq_hz);
+        cJSON_AddNumberToObject(k, "favs", (double)irm_control_kiwi_favorites());   /* Eintraege 0..favs-1 der Liste sind gespeicherte Favoriten (loeschbar), ein weiterer ist der Direkteintrag */
         cJSON_AddStringToObject(k, "mode", s.kiwi_mode);
         if (s.kiwi_rssi_dbm != IRM_RSSI_NONE) cJSON_AddNumberToObject(k, "rssi_dbm", s.kiwi_rssi_dbm);
         cJSON *m = cJSON_AddArrayToObject(k, "modes");
@@ -146,7 +147,8 @@ static const struct { const char *name; irm_cmd_id_t id; } k_cmds[] = {
     { "kiwi_step", IRM_CMD_KIWI_STEP },   /* value = +-Hz */
     { "kiwi_mode", IRM_CMD_KIWI_MODE },   /* value = Index, oder "mode":"usb" */
     { "media_all", IRM_CMD_MEDIA_ALL },   /* Quelle Dateien: ganze SD-Karte rekursiv als Playlist */
-    { "kiwi_fav",  IRM_CMD_KIWI_FAVORITE },   /* aktuellen Kiwi-Eintrag samt Frequenz in kiwi.m3u speichern */
+    { "kiwi_fav",  IRM_CMD_KIWI_FAVORITE },   /* aktuellen Kiwi-Eintrag samt Frequenz in kiwi.m3u speichern; optional "name":"..." */
+    { "kiwi_del",  IRM_CMD_KIWI_DELETE },     /* value = Listenindex eines Favoriten: aus kiwi.m3u entfernen */
 };
 
 static esp_err_t h_cmd(httpd_req_t *req)
@@ -170,7 +172,17 @@ static esp_err_t h_cmd(httpd_req_t *req)
                     cJSON_Delete(j);
                     return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kiwi_tune: value = Frequenz in Hz");
                 }
-                e = irm_cmd_post_id(k_cmds[i].id, val);
+                if (k_cmds[i].id == IRM_CMD_KIWI_DELETE && (!cJSON_IsNumber(v) || v->valuedouble < 0 || v->valuedouble > 1000)) {
+                    cJSON_Delete(j);
+                    return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kiwi_del: value = Listenindex");
+                }
+                if (k_cmds[i].id == IRM_CMD_KIWI_FAVORITE) {
+                    const cJSON *nm = cJSON_GetObjectItemCaseSensitive(j, "name");   /* Name des Favoriten (Fremddaten: Laenge begrenzen, UTF-8 bereinigen) */
+                    char name[4 * IRM_NAME_MAX_LEN];   /* grosszuegig: irm_control kuerzt danach an einer Zeichengrenze auf die Namenslaenge */
+                    name[0] = 0;
+                    if (cJSON_IsString(nm)) { strlcpy(name, nm->valuestring, sizeof(name)); irm_web_utf8_clean(name); }
+                    e = irm_control_kiwi_favorite(name);
+                } else e = irm_cmd_post_id(k_cmds[i].id, val);
                 break;
             }
         }

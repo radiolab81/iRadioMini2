@@ -11,7 +11,7 @@ const items = [
   { i: 0, name: EVIL, place: '<b>Ort</b>', country: 'Germany', host: 'evil.example', port: 8073, users: 1, max: 4, snr: 33, lo: 0, hi: 30000000 },
   { i: 1, name: 'Zweiter Server', place: 'Boulder, CO', country: 'USA', host: 'srv2.example', port: 8074, users: 0, max: 0, snr: 0, lo: 0, hi: 0 },
 ];
-const srv = { posts: [], gets: [], dirstate: 'idle', valid: true, status429: false, listTotal: 45, kiwi: null, source: 'radio', failList: false };
+const srv = { posts: [], gets: [], dirstate: 'idle', valid: true, status429: false, listTotal: 45, kiwi: null, source: 'radio', failList: false, name: 'Test', list: null };
 
 function fakeFetch(url, opt) {
   const u = new URL(url, 'http://x/'); const p = u.pathname;
@@ -26,8 +26,8 @@ function fakeFetch(url, opt) {
     return json({ ok: true });
   }
   srv.gets.push(u.pathname + u.search);
-  if (p === '/api/status') return json({ net: true, player: 'playing', name: 'Test', source: srv.source, volume: 30, index: 0, count: 3, eq: [0,0,0,0,0,0,0,0,0,0], kiwi: srv.kiwi, sample_rate: 12000, bitrate: 192000 });
-  if (p === '/api/list') return json(['A', 'B', 'C']);
+  if (p === '/api/status') return json({ net: true, player: 'playing', name: srv.name, source: srv.source, volume: 30, index: 0, count: (srv.list || ['A', 'B', 'C']).length, eq: [0,0,0,0,0,0,0,0,0,0], kiwi: srv.kiwi, sample_rate: 12000, bitrate: 192000 });
+  if (p === '/api/list') return json(srv.list || ['A', 'B', 'C']);
   if (p === '/api/dir') return json({ available: true, valid: srv.valid, count: 842, generation: 3, state: srv.dirstate, bytes: 51200, servers: 120, err: 0, msg: '', retry_in_s: 0 });
   if (p === '/api/dir/countries') return json([{ id: 5, name: 'Germany', n: 23 }, { id: 9, name: 'USA', n: 150 }]);
   if (p === '/api/dir/list') {
@@ -98,6 +98,55 @@ function fakeFetch(url, opt) {
   srv.posts.length = 0; w.fav(); await sleep(150);
   check(srv.posts.some(x => x.p === '/api/cmd' && x.body.cmd === 'kiwi_fav'), 'POST /api/cmd kiwi_fav');
   check($('kmsg').textContent.length > 0, 'Rueckmeldung angezeigt');
+
+  console.log('== Favorit mit eigenem Namen');
+  srv.name = 'Langwelle 225 kHz (AM)'; srv.kiwi = { ...srv.kiwi, favs: 2 }; srv.list = ['Fav A', 'Fav B', 'Direkt <b>x</b>'];
+  await w.poll(); await sleep(50);
+  check($('kn').value === 'Langwelle 225 kHz (AM)', 'Namensfeld mit dem Namen des laufenden Eintrags vorbelegt: ' + $('kn').value);
+  $('kn').value = '  WWV 6150  ';
+  srv.posts.length = 0; w.fav(); await sleep(150);
+  let fp = srv.posts.find(x => x.p === '/api/cmd' && x.body.cmd === 'kiwi_fav');
+  check(fp && fp.body.name === 'WWV 6150', 'kiwi_fav sendet den eingegebenen Namen (getrimmt): ' + JSON.stringify(fp && fp.body));
+  await w.poll();
+  check($('kn').value === '  WWV 6150  ', 'eingegebener Name wird vom Status-Abruf nicht ueberschrieben');
+  $('kn').value = '   '; srv.posts.length = 0; w.fav(); await sleep(150);
+  fp = srv.posts.find(x => x.p === '/api/cmd' && x.body.cmd === 'kiwi_fav');
+  check(fp && !('name' in fp.body), 'leeres Namensfeld: kein Name gesendet (Radio nimmt den Namen des Eintrags)');
+  await sleep(900);
+  check(/nicht gespeichert/.test($('kmsg').textContent), 'Liste unveraendert -> Hinweis: ' + $('kmsg').textContent);
+  check($('kn').value === '   ', 'bei Misserfolg bleibt das Namensfeld erhalten');
+  $('kn').value = 'Neu'; srv.posts.length = 0; w.fav(); await sleep(100);
+  srv.kiwi.favs = 3; srv.list = ['Fav A', 'Fav B', 'Neu', 'Direkt <b>x</b>']; await w.poll(); await sleep(900);
+  check($('kmsg').textContent === 'Favorit gespeichert', 'Favorit gespeichert gemeldet: ' + $('kmsg').textContent);
+  await w.poll();
+  check($('kn').value === 'Langwelle 225 kHz (AM)', 'nach dem Speichern: Namensfeld wieder mit dem Eintragsnamen vorbelegt');
+  srv.name = EVIL; await w.poll();
+  check($('kn').value === EVIL && !d.querySelector('#kiwi img, #kiwi script') && w.__xss === undefined, 'Eintragsname im Namensfeld nur als Wert (kein XSS)');
+  srv.name = 'Langwelle 225 kHz (AM)';
+
+  console.log('== Preset loeschen');
+  srv.kiwi.favs = 2; srv.list = ['Fav A', 'Fav B', 'Direkt <b>x</b>']; await w.poll(); await sleep(50);
+  let li = d.querySelectorAll('#list li');
+  check(li.length === 3 && li[0].querySelector('button.del') && li[1].querySelector('button.del') && !li[2].querySelector('button'), 'Loeschen-Button nur an gespeicherten Favoriten, nicht am Direkteintrag');
+  check(li[2].textContent === 'Direkt <b>x</b>' && !d.querySelector('#list b'), 'Namen in der Liste nur als Text');
+  confirmAnswer = false; confirms.length = 0; srv.posts.length = 0;
+  li[1].querySelector('button.del').click(); await sleep(100);
+  check(confirms.length === 1 && confirms[0].includes('Fav B') && srv.posts.length === 0, 'Rueckfrage nennt den Preset; Abbrechen sendet nichts: ' + confirms[0]);
+  confirmAnswer = true; srv.posts.length = 0;
+  li[1].querySelector('button.del').click(); await sleep(100);
+  check(srv.posts.length === 1 && srv.posts[0].body.cmd === 'kiwi_del' && srv.posts[0].body.value === 1, 'POST kiwi_del mit Listenindex 1, ohne zusaetzliches goto: ' + JSON.stringify(srv.posts.map(x => x.body)));
+  await sleep(900);
+  check(/nicht gel/.test($('kmsg').textContent), 'Liste unveraendert -> Hinweis: ' + $('kmsg').textContent);
+  srv.posts.length = 0; li[1].querySelector('button.del').click(); await sleep(100);
+  srv.kiwi.favs = 1; srv.list = ['Fav A', 'Direkt <b>x</b>']; await w.poll(); await sleep(900);
+  check($('kmsg').textContent === 'Preset gelöscht', 'Loeschen gemeldet: ' + $('kmsg').textContent);
+  li = d.querySelectorAll('#list li');
+  check(li.length === 2 && li[0].querySelector('button.del') && !li[1].querySelector('button'), 'Liste neu gezeichnet: ein Favorit + Direkteintrag');
+  srv.posts.length = 0; li[1].click(); await sleep(50);
+  check(srv.posts.length === 1 && srv.posts[0].body.cmd === 'goto' && srv.posts[0].body.value === 1, 'Klick auf die Zeile waehlt den Eintrag an (goto 1)');
+  srv.kiwi = null; srv.source = 'radio'; srv.name = 'Test'; srv.list = null; await w.poll(); await sleep(50);
+  check(d.querySelectorAll('#list li').length === 3 && !d.querySelector('#list button'), 'Radio: keine Loeschen-Buttons');
+  srv.kiwi = { freq_hz: 7055500, mode: 'usb', modes: ['am', 'usb'], rssi_dbm: -70 }; srv.source = 'kiwi'; await w.poll();
 
   console.log('== Liste aktualisieren');
   srv.posts.length = 0; confirms.length = 0; srv.status429 = true;

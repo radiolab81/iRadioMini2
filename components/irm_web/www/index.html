@@ -1,176 +1,823 @@
 <!doctype html>
-<html lang="de"><head><meta charset="utf-8">
+<html lang="de">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>iRadioMini2</title>
 <style>
-:root{color-scheme:light dark;--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--ac:#0a7ea4;--bd:#d1d5db}
-@media(prefers-color-scheme:dark){:root{--bg:#111418;--fg:#e8eaed;--mut:#9aa0a6;--ac:#4fc3f7;--bd:#2b3138}}
-body{font:16px system-ui,sans-serif;background:var(--bg);color:var(--fg);max-width:34rem;margin:0 auto;padding:1rem}
-h1{font-size:1.2rem;margin:.2rem 0}.mut{color:var(--mut);font-size:.85rem}
-.now{border:1px solid var(--bd);border-radius:.6rem;padding:.8rem;margin:.8rem 0}.now b{font-size:1.1rem}
-button{font:inherit;background:none;color:var(--fg);border:1px solid var(--bd);border-radius:.5rem;padding:.5rem .9rem;cursor:pointer}
-button:hover{border-color:var(--ac)}.row{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0;align-items:center}
-input[type=range]{flex:1;accent-color:var(--ac)}ul{list-style:none;padding:0;margin:0;max-height:16rem;overflow:auto;border:1px solid var(--bd);border-radius:.5rem}
-li{padding:.5rem .7rem;border-bottom:1px solid var(--bd);cursor:pointer}li.cur{color:var(--ac);font-weight:600}
-.dl{border:1px solid var(--bd);border-radius:.6rem;padding:.6rem .8rem;margin:.8rem 0}.dl summary{cursor:pointer;font-weight:600}
-.dl input[type=text],.dl select{font:inherit;padding:.35rem;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:.5rem;min-width:0}
-.dl ul{max-height:22rem}.dl li{cursor:default;display:flex;gap:.5rem;align-items:center;justify-content:space-between}.dl li div{min-width:0}
-.dl li b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dl li button{flex:none;padding:.35rem .7rem}.err{color:#d33}
-.fb{border:1px solid var(--bd);border-radius:.6rem;padding:.6rem .8rem;margin:.8rem 0}
-.crumbs{display:flex;flex-wrap:wrap;gap:.25rem;align-items:center;margin:.3rem 0}.crumbs button{padding:.2rem .55rem;font-size:.85rem}
-.fb pre{white-space:pre-wrap;word-break:break-all;font-size:.8rem;margin:.5rem 0}
-.fb ul{max-height:22rem}.fb li{display:flex;gap:.5rem;align-items:center}.fb li .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}.fb li.up{color:var(--mut)}
-.eq{display:flex;gap:.3rem;justify-content:space-between}.eq div{text-align:center;font-size:.7rem}
-.eq input{writing-mode:vertical-lr;direction:rtl;height:7rem;width:1.6rem}
-</style></head><body>
-<h1>iRadioMini2</h1><div class="mut" id="net"></div>
-<div class="now"><div class="mut" id="state"></div><b id="name">–</b></div>
-<div class="now" id="kiwi" hidden><div class="mut">KiwiSDR · <span id="kstat"></span></div>
-<div class="row"><input id="kf" type="number" step="0.1" min="10" max="32000" style="width:8rem;font:inherit;padding:.4rem;background:none;color:var(--fg);border:1px solid var(--bd);border-radius:.5rem"> kHz
-<select id="km" onchange="c('kiwi_mode',+this.value)" style="font:inherit;padding:.4rem;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:.5rem"></select>
-<button onclick="tune()">Setzen</button><button onclick="fav()" title="Server und Frequenz in kiwi.m3u speichern (SD-Karte noetig)">★ Favorit</button></div><div class="mut" id="kmsg"></div>
-<div class="row"><button onclick="c('kiwi_step',-5000)">−5k</button><button onclick="c('kiwi_step',-1000)">−1k</button><button onclick="c('kiwi_step',-100)">−100</button>
-<button onclick="c('kiwi_step',100)">+100</button><button onclick="c('kiwi_step',1000)">+1k</button><button onclick="c('kiwi_step',5000)">+5k</button></div></div>
-<div class="row"><button onclick="c('prev')">⏮</button><button onclick="c('toggle')">⏯</button><button onclick="c('next')">⏭</button>
-<button onclick="c('toggle_source')" id="src">Quelle</button></div>
-<div class="row"><span class="mut">Vol</span><input id="vol" type="range" min="0" max="100" oninput="vol(this.value)"><span id="vv" class="mut"></span></div>
+  /* ---- Farben (hell/dunkel) ---- */
+  :root {
+    color-scheme: light dark;
+    --bg: #fff;
+    --fg: #1c1c1e;
+    --mut: #6b7280;
+    --ac: #0a7ea4;
+    --bd: #d1d5db;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418;
+      --fg: #e8eaed;
+      --mut: #9aa0a6;
+      --ac: #4fc3f7;
+      --bd: #2b3138;
+    }
+  }
+
+  /* ---- Grundlayout ---- */
+  body {
+    font: 16px system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    max-width: 34rem;
+    margin: 0 auto;
+    padding: 1rem;
+  }
+  h1 {
+    font-size: 1.2rem;
+    margin: .2rem 0;
+  }
+  .mut {
+    color: var(--mut);
+    font-size: .85rem;
+  }
+  /* ---- Kartenrahmen: "Jetzt läuft" und KiwiSDR-Bedienfeld ---- */
+  .now {
+    border: 1px solid var(--bd);
+    border-radius: .6rem;
+    padding: .8rem;
+    margin: .8rem 0;
+  }
+  .now b {
+    font-size: 1.1rem;
+  }
+
+  /* ---- Bedienelemente ---- */
+  button {
+    font: inherit;
+    background: none;
+    color: var(--fg);
+    border: 1px solid var(--bd);
+    border-radius: .5rem;
+    padding: .5rem .9rem;
+    cursor: pointer;
+  }
+  button:hover {
+    border-color: var(--ac);
+  }
+  .row {
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+    margin: .5rem 0;
+    align-items: center;
+  }
+  input[type=range] {
+    flex: 1;
+    accent-color: var(--ac);
+  }
+
+  /* Frequenzfeld, Namensfeld und Modus-Auswahl im KiwiSDR-Bedienfeld */
+  #kf,
+  #kn {
+    font: inherit;
+    padding: .4rem;
+    background: none;
+    color: var(--fg);
+    border: 1px solid var(--bd);
+    border-radius: .5rem;
+  }
+  #kf {
+    width: 8rem;
+  }
+  #kn {
+    flex: 1;
+    min-width: 0;
+  }
+  #km {
+    font: inherit;
+    padding: .4rem;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--bd);
+    border-radius: .5rem;
+  }
+
+  /* ---- Liste der Sender / Presets ---- */
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 16rem;
+    overflow: auto;
+    border: 1px solid var(--bd);
+    border-radius: .5rem;
+  }
+  li {
+    padding: .5rem .7rem;
+    border-bottom: 1px solid var(--bd);
+    cursor: pointer;
+  }
+  li.cur {
+    color: var(--ac);
+    font-weight: 600;
+  }
+  /* Preset-Zeile (KiwiSDR) mit Löschen-Button */
+  li.has-del {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  li .name {
+    flex: 1;
+    min-width: 0;
+  }
+  li .del {
+    flex: none;
+    padding: .1rem .5rem;
+  }
+
+  /* ---- KiwiSDR-Serversuche (details-Block) ---- */
+  .dl {
+    border: 1px solid var(--bd);
+    border-radius: .6rem;
+    padding: .6rem .8rem;
+    margin: .8rem 0;
+  }
+  .dl summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .dl input[type=text],
+  .dl select {
+    font: inherit;
+    padding: .35rem;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--bd);
+    border-radius: .5rem;
+    min-width: 0;
+  }
+  #dt {
+    flex: 1;
+  }
+  .dl ul {
+    max-height: 22rem;
+  }
+  .dl li {
+    cursor: default;
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .dl li div {
+    min-width: 0;
+  }
+  .dl li b {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dl li button {
+    flex: none;
+    padding: .35rem .7rem;
+  }
+  .err {                    /* Fehlermeldung in der Serversuche */
+    color: #d33;
+  }
+
+  /* ---- Dateibrowser und Netzwerk-Eingang ---- */
+  .fb {
+    border: 1px solid var(--bd);
+    border-radius: .6rem;
+    padding: .6rem .8rem;
+    margin: .8rem 0;
+  }
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .25rem;
+    align-items: center;
+    margin: .3rem 0;
+  }
+  .crumbs button {
+    padding: .2rem .55rem;
+    font-size: .85rem;
+  }
+  .fb pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: .8rem;
+    margin: .5rem 0;
+  }
+  .fb ul {
+    max-height: 22rem;
+  }
+  .fb li {
+    display: flex;
+    gap: .5rem;
+    align-items: center;
+  }
+  .fb li .n {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+  }
+  .fb li.up {
+    color: var(--mut);
+  }
+
+  /* ---- Equalizer ---- */
+  .eq-title {
+    font-size: 1rem;
+    margin-top: 1.2rem;
+  }
+  .eq {
+    display: flex;
+    gap: .3rem;
+    justify-content: space-between;
+  }
+  .eq div {
+    text-align: center;
+    font-size: .7rem;
+  }
+  .eq input {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    height: 7rem;
+    width: 1.6rem;
+  }
+</style>
+</head>
+<body>
+
+<h1>iRadioMini2</h1>
+<div class="mut" id="net"></div>
+
+<!-- Jetzt läuft -->
+<div class="now">
+  <div class="mut" id="state"></div>
+  <b id="name">–</b>
+</div>
+
+<!-- KiwiSDR-Bedienfeld (nur in der Quelle KiwiSDR sichtbar) -->
+<div class="now" id="kiwi" hidden>
+  <div class="mut">KiwiSDR · <span id="kstat"></span></div>
+  <div class="row">
+    <input id="kf" type="number" step="0.1" min="10" max="32000">
+    kHz
+    <select id="km" onchange="c('kiwi_mode',+this.value)"></select>
+    <button onclick="tune()">Setzen</button>
+  </div>
+  <div class="row">
+    <input id="kn" type="text" maxlength="63" placeholder="Name des Favoriten"
+           title="Name, unter dem der Favorit in der Liste erscheint" onkeydown="if(event.key==='Enter')fav()">
+    <button onclick="fav()" title="Server, Frequenz und Name in kiwi.m3u speichern (SD-Karte noetig)">★ Favorit</button>
+  </div>
+  <div class="mut" id="kmsg"></div>
+  <div class="row">
+    <button onclick="c('kiwi_step',-5000)">−5k</button>
+    <button onclick="c('kiwi_step',-1000)">−1k</button>
+    <button onclick="c('kiwi_step',-100)">−100</button>
+    <button onclick="c('kiwi_step',100)">+100</button>
+    <button onclick="c('kiwi_step',1000)">+1k</button>
+    <button onclick="c('kiwi_step',5000)">+5k</button>
+  </div>
+</div>
+
+<!-- Transport, Quelle, Lautstärke -->
+<div class="row">
+  <button onclick="c('prev')">⏮</button>
+  <button onclick="c('toggle')">⏯</button>
+  <button onclick="c('next')">⏭</button>
+  <button onclick="c('toggle_source')" id="src">Quelle</button>
+</div>
+<div class="row">
+  <span class="mut">Vol</span>
+  <input id="vol" type="range" min="0" max="100" oninput="vol(this.value)">
+  <span id="vv" class="mut"></span>
+</div>
+
+<!-- Liste der Sender bzw. KiwiSDR-Presets -->
 <ul id="list"></ul>
-<div class="fb" id="nin" hidden><div id="ninst"></div>
-<pre id="nincmd" class="mut"></pre>
-<div class="mut">Nur Absender aus dem eigenen Subnetz, immer nur einer gleichzeitig, kein Passwort.</div></div>
-<div class="fb" id="fb" hidden><div class="mut" id="fcount"></div>
-<div class="crumbs" id="crumbs"></div>
-<div class="row"><button onclick="allTitles()" title="Gesamte SD-Karte rekursiv als Wiedergabeliste">Alle Titel</button><span class="mut" id="fmsg"></span></div>
-<ul id="flist"></ul>
-<div class="row"><button id="fprev" onclick="fPrev()">‹</button><button id="fnext" onclick="fNext()">›</button><span class="mut" id="fcnt"></span></div></div>
-<details class="dl" id="dir" hidden ontoggle="if(this.open)dirOpen()"><summary>KiwiSDR-Server suchen</summary>
-<div class="mut" id="dinfo">–</div>
-<div class="row"><button id="dupd" onclick="dirUpdate(false,true)">Liste aktualisieren</button><span class="mut" id="dprog"></span></div>
-<div id="dui" hidden>
-<div class="row"><input type="text" id="dt" maxlength="20" placeholder="Name, Ort, Land …" style="flex:1" onkeydown="if(event.key==='Enter')dirSearch(0)">
-<select id="dc"><option value="">alle Länder</option></select></div>
-<div class="row"><select id="dq"><option value="0">SNR egal</option><option value="20">SNR ≥ 20 dB</option><option value="25">≥ 25 dB</option><option value="30">≥ 30 dB</option><option value="35">≥ 35 dB</option></select>
-<select id="ds"><option value="list">Reihenfolge der Liste</option><option value="snr">beste SNR zuerst</option></select></div>
-<div class="row"><label><input type="checkbox" id="df"> nur freie Kanäle</label><label><input type="checkbox" id="dfq"> deckt <span id="dfv">aktuelle</span> kHz ab</label></div>
-<div class="row"><button onclick="dirSearch(0)">Suchen</button><span class="mut" id="dcnt"></span></div>
-<ul id="dlist"></ul>
-<div class="row"><button id="dprev" onclick="dirSearch(D.off-D.lim)">‹</button><button id="dnext" onclick="dirSearch(D.off+D.lim)">›</button></div>
-</div></details>
-<h2 style="font-size:1rem;margin-top:1.2rem">Equalizer</h2>
+
+<!-- Netzwerk-Eingang (nur in der Quelle Netzwerk sichtbar) -->
+<div class="fb" id="nin" hidden>
+  <div id="ninst"></div>
+  <pre id="nincmd" class="mut"></pre>
+  <div class="mut">Nur Absender aus dem eigenen Subnetz, immer nur einer gleichzeitig, kein Passwort.</div>
+</div>
+
+<!-- Dateibrowser (nur in der Quelle Dateien sichtbar) -->
+<div class="fb" id="fb" hidden>
+  <div class="mut" id="fcount"></div>
+  <div class="crumbs" id="crumbs"></div>
+  <div class="row">
+    <button onclick="allTitles()" title="Gesamte SD-Karte rekursiv als Wiedergabeliste">Alle Titel</button>
+    <span class="mut" id="fmsg"></span>
+  </div>
+  <ul id="flist"></ul>
+  <div class="row">
+    <button id="fprev" onclick="fPrev()">‹</button>
+    <button id="fnext" onclick="fNext()">›</button>
+    <span class="mut" id="fcnt"></span>
+  </div>
+</div>
+
+<!-- KiwiSDR-Serversuche (nur in der Quelle KiwiSDR sichtbar) -->
+<details class="dl" id="dir" hidden ontoggle="if(this.open)dirOpen()">
+  <summary>KiwiSDR-Server suchen</summary>
+  <div class="mut" id="dinfo">–</div>
+  <div class="row">
+    <button id="dupd" onclick="dirUpdate(false,true)">Liste aktualisieren</button>
+    <span class="mut" id="dprog"></span>
+  </div>
+  <div id="dui" hidden>
+    <div class="row">
+      <input type="text" id="dt" maxlength="20" placeholder="Name, Ort, Land …" onkeydown="if(event.key==='Enter')dirSearch(0)">
+      <select id="dc">
+        <option value="">alle Länder</option>
+      </select>
+    </div>
+    <div class="row">
+      <select id="dq">
+        <option value="0">SNR egal</option>
+        <option value="20">SNR ≥ 20 dB</option>
+        <option value="25">≥ 25 dB</option>
+        <option value="30">≥ 30 dB</option>
+        <option value="35">≥ 35 dB</option>
+      </select>
+      <select id="ds">
+        <option value="list">Reihenfolge der Liste</option>
+        <option value="snr">beste SNR zuerst</option>
+      </select>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="df"> nur freie Kanäle</label>
+      <label><input type="checkbox" id="dfq"> deckt <span id="dfv">aktuelle</span> kHz ab</label>
+    </div>
+    <div class="row">
+      <button onclick="dirSearch(0)">Suchen</button>
+      <span class="mut" id="dcnt"></span>
+    </div>
+    <ul id="dlist"></ul>
+    <div class="row">
+      <button id="dprev" onclick="dirSearch(D.off-D.lim)">‹</button>
+      <button id="dnext" onclick="dirSearch(D.off+D.lim)">›</button>
+    </div>
+  </div>
+</details>
+
+<!-- Equalizer -->
+<h2 class="eq-title">Equalizer</h2>
 <div class="eq" id="eq"></div>
-<div class="row"><button onclick="eq(true)">Speichern</button><button onclick="post('/api/eq',{action:'reset'})">Zurücksetzen</button></div>
+<div class="row">
+  <button onclick="eq(true)">Speichern</button>
+  <button onclick="post('/api/eq',{action:'reset'})">Zurücksetzen</button>
+</div>
+
 <script>
-const F=['31','62','125','250','500','1k','2k','4k','8k','16k'];let L=[],lastSrc='',busy=0;
-const $=i=>document.getElementById(i);
-function tune(){const v=parseFloat($('kf').value);if(v>0)c('kiwi_tune',Math.round(v*1000))}
-let KF=0;function kiwi(s){const k=s.kiwi;KF=k?k.freq_hz:0;$('dfv').textContent=KF?(KF/1000):'aktuelle';$('kiwi').hidden=!k;$('dir').hidden=!k;if(!k)return;
- if($('km').length!==k.modes.length)$('km').innerHTML=k.modes.map((m,i)=>`<option value="${i}">${m.toUpperCase()}</option>`).join('');
- if(document.activeElement!==$('kf'))$('kf').value=k.freq_hz/1000;
- if(document.activeElement!==$('km'))$('km').value=k.modes.indexOf(k.mode);
- $('kstat').textContent=(k.rssi_dbm!==undefined?k.rssi_dbm+' dBm':'–')}
-async function post(u,b){try{await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})}catch(e){}}
-const c=(cmd,value)=>post('/api/cmd',{cmd,value}).then(()=>setTimeout(poll,300));
-let vt;function vol(v){$('vv').textContent=v+'%';busy=Date.now();clearTimeout(vt);vt=setTimeout(()=>c('volume',+v),120)}
-function eq(save){post('/api/eq',{gains:[...document.querySelectorAll('.eq input')].map(i=>+i.value),save})}
-let et;function eqchg(){clearTimeout(et);busy=Date.now();et=setTimeout(()=>eq(false),150)}
-$('eq').innerHTML=F.map((f,i)=>`<div><input type="range" min="-12" max="12" value="0" oninput="eqchg()"><br>${f}</div>`).join('');
-async function poll(){try{
- const s=await (await fetch('/api/status')).json();
- $('net').textContent=s.net?'WLAN verbunden':'kein WLAN';
- $('state').textContent=s.player+(s.sample_rate?` · ${s.sample_rate/1000} kHz`:'')+(s.bitrate?` · ${Math.round(s.bitrate/1000)} kbit/s`:'');
- $('name').textContent=s.name||'–';$('src').textContent={radio:'Radio',media:'Dateien',kiwi:'KiwiSDR',net:'Netzwerk'}[s.source]||s.source;kiwi(s);media(s);netin(s);
- if(Date.now()-busy>1500){$('vol').value=s.volume;$('vv').textContent=s.volume+'%';
-  document.querySelectorAll('.eq input').forEach((e,i)=>e.value=s.eq[i])}
- if(s.source!=='media'){
- if(lastSrc!==s.source+s.count+'|'+(s.source==='kiwi'?s.name:'')){lastSrc=s.source+s.count+'|'+(s.source==='kiwi'?s.name:'');L=await (await fetch('/api/list')).json()}
- $('list').innerHTML=L.map((n,i)=>`<li class="${i===s.index?'cur':''}" onclick="c('goto',${i})">${n.replace(/[<&]/g,m=>m==='<'?'&lt;':'&amp;')}</li>`).join('')}
-}catch(e){$('net').textContent='keine Verbindung'}}
+/* ======================================================================
+   iRadioMini2 Web-UI: eine Seite, kein Framework.
+   Alle Daten vom Gerät (Sender-, Datei-, Servernamen ...) sind Fremddaten
+   und werden nur per textContent bzw. escaped ausgegeben (kein XSS).
+   ====================================================================== */
+
+/* ---- Hilfen und gemeinsamer Zustand ---- */
+const F = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];   // Mittenfrequenzen des Equalizers (Hz)
+let L = [];          // zuletzt geladene Liste der aktiven Quelle (Namen)
+let lastSrc = '';    // Schlüssel der geladenen Liste; ändert er sich, wird /api/list neu geladen
+let busy = 0;        // Zeitpunkt der letzten Bedienung von Lautstärke/EQ: poll() lässt die Regler dann kurz in Ruhe
+
+const $ = i => document.getElementById(i);
+const el = (t, x, c) => {                     // Element mit Text (textContent) und optionaler Klasse
+  const e = document.createElement(t);
+  if (x !== undefined) e.textContent = x;
+  if (c) e.className = c;
+  return e;
+};
+
+/* ---- Kommandos an das Radio ---- */
+async function post(u, b) {
+  try {
+    await fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+  } catch (e) {}
+}
+const c = (cmd, value, extra) => post('/api/cmd', { cmd, value, ...extra }).then(() => setTimeout(poll, 300));
+
+/* ---- KiwiSDR-Bedienfeld ---- */
+function tune() {
+  const v = parseFloat($('kf').value);
+  if (v > 0) c('kiwi_tune', Math.round(v * 1000));
+}
+
+let KF = 0;          // aktuelle Kiwi-Frequenz in Hz (0 = keine KiwiSDR-Quelle)
+let KFAV = 0;        // Anzahl gespeicherter Favoriten (Listeneinträge 0 .. KFAV-1; ein weiterer Eintrag ist der Direkteintrag aus der Serversuche)
+let KN = null;       // Name des laufenden Eintrags, mit dem das Namensfeld zuletzt vorbelegt wurde
+function kiwi(s) {
+  const k = s.kiwi;
+  KF = k ? k.freq_hz : 0;
+  KFAV = k ? (k.favs || 0) : 0;
+  $('dfv').textContent = KF ? (KF / 1000) : 'aktuelle';
+  $('kiwi').hidden = !k;
+  $('dir').hidden = !k;
+  if (!k) return;
+  if ($('km').length !== k.modes.length)
+    $('km').innerHTML = k.modes.map((m, i) => `<option value="${i}">${m.toUpperCase()}</option>`).join('');
+  if (document.activeElement !== $('kf')) $('kf').value = k.freq_hz / 1000;
+  if (document.activeElement !== $('km')) $('km').value = k.modes.indexOf(k.mode);
+  if (s.name !== KN) {                         // anderer Eintrag: Namensfeld mit dessen Namen vorbelegen (nicht während des Tippens)
+    KN = s.name;
+    if (document.activeElement !== $('kn')) $('kn').value = s.name || '';
+  }
+  $('kstat').textContent = (k.rssi_dbm !== undefined ? k.rssi_dbm + ' dBm' : '–');
+}
+
+// Aktuellen Server samt eingestellter Frequenz/Modus unter dem Namen aus dem Namensfeld als Favorit speichern
+async function fav() {
+  const name = $('kn').value.trim(), before = KFAV;
+  $('kmsg').textContent = 'Favorit angefordert …';
+  await c('kiwi_fav', undefined, name ? { name } : undefined);
+  setTimeout(() => {
+    if (KFAV > before) {
+      $('kmsg').textContent = 'Favorit gespeichert';
+      KN = null;                               // Namensfeld wieder mit dem Namen des laufenden Eintrags vorbelegen
+    } else {
+      $('kmsg').textContent = 'Favorit nicht gespeichert – ohne SD-Karte oder bei bereits gespeicherter Frequenz bleibt die Liste unverändert';
+    }
+  }, 900);
+}
+
+// Favorit (Listenindex i) aus kiwi.m3u löschen; läuft er gerade, spielt er als Direkteintrag weiter
+async function delFav(i, name) {
+  if (!confirm(`Preset „${name}“ aus kiwi.m3u löschen?`)) return;
+  const before = KFAV;
+  $('kmsg').textContent = 'Preset wird gelöscht …';
+  await c('kiwi_del', i);
+  setTimeout(() => {
+    $('kmsg').textContent = KFAV < before ? 'Preset gelöscht' : 'Preset nicht gelöscht – ohne SD-Karte oder bei Schreibfehler bleibt die Liste unverändert';
+  }, 900);
+}
+
+/* ---- Lautstärke und Equalizer ---- */
+let vt;
+function vol(v) {
+  $('vv').textContent = v + '%';
+  busy = Date.now();
+  clearTimeout(vt);
+  vt = setTimeout(() => c('volume', +v), 120);
+}
+
+function eq(save) {
+  post('/api/eq', { gains: [...document.querySelectorAll('.eq input')].map(i => +i.value), save });
+}
+
+let et;
+function eqchg() {
+  clearTimeout(et);
+  busy = Date.now();
+  et = setTimeout(() => eq(false), 150);
+}
+
+$('eq').innerHTML = F.map((f, i) => `<div><input type="range" min="-12" max="12" value="0" oninput="eqchg()"><br>${f}</div>`).join('');
+
+/* ---- Status abfragen (alle 2 s) und Oberfläche nachführen ---- */
+async function poll() {
+  try {
+    const s = await (await fetch('/api/status')).json();
+    $('net').textContent = s.net ? 'WLAN verbunden' : 'kein WLAN';
+    $('state').textContent = s.player
+      + (s.sample_rate ? ` · ${s.sample_rate / 1000} kHz` : '')
+      + (s.bitrate ? ` · ${Math.round(s.bitrate / 1000)} kbit/s` : '');
+    $('name').textContent = s.name || '–';
+    $('src').textContent = { radio: 'Radio', media: 'Dateien', kiwi: 'KiwiSDR', net: 'Netzwerk' }[s.source] || s.source;
+    kiwi(s);
+    media(s);
+    netin(s);
+
+    if (Date.now() - busy > 1500) {
+      $('vol').value = s.volume;
+      $('vv').textContent = s.volume + '%';
+      document.querySelectorAll('.eq input').forEach((e, i) => e.value = s.eq[i]);
+    }
+
+    if (s.source !== 'media') {
+      // Liste nur neu laden, wenn sich Quelle, Länge oder (bei KiwiSDR) Name bzw. Favoritenzahl geändert haben
+      const key = s.source + s.count + '|' + (s.source === 'kiwi' ? s.name + '|' + KFAV : '');
+      if (lastSrc !== key) {
+        lastSrc = key;
+        L = await (await fetch('/api/list')).json();
+      }
+      renderList(s);
+    }
+  } catch (e) {
+    $('net').textContent = 'keine Verbindung';
+  }
+}
+
+/* ---- Liste der Sender bzw. Presets: Namen sind Fremddaten -> nur per textContent ---- */
+let listKey = '';    // Schlüssel der zuletzt gezeichneten Liste (nur bei Änderung neu zeichnen: Scrollposition bleibt, Buttons werden nicht unter dem Finger ersetzt)
+function renderList(s) {
+  const key = lastSrc + '#' + s.index;
+  if (listKey === key) return;
+  listKey = key;
+  const favs = s.source === 'kiwi' ? KFAV : 0;     // nur gespeicherte Favoriten sind löschbar
+  const ul = $('list'), top = ul.scrollTop;
+  ul.replaceChildren(...L.map((n, i) => {
+    const li = document.createElement('li');
+    if (i === s.index) li.className = 'cur';
+    li.onclick = () => c('goto', i);
+    if (i >= favs) {
+      li.textContent = n;
+      return li;
+    }
+    const b = el('button', '✕', 'del');
+    b.title = 'Preset löschen';
+    b.setAttribute('aria-label', 'Preset löschen');
+    b.onclick = ev => {
+      ev.stopPropagation();                        // nicht zugleich den Eintrag anwählen
+      delFav(i, n);
+    };
+    li.classList.add('has-del');
+    li.append(el('span', n, 'name'), b);
+    return li;
+  }));
+  ul.scrollTop = top;
+}
 
 /* ---- Netzwerk-Eingang (Quelle Netzwerk): Status + Anleitung; Absender-IP und Hostname sind Fremddaten -> nur per textContent ---- */
-function netin(s){const n=s.source==='net'&&s.net;$('nin').hidden=!n;if(!n)return;
- const k=s.net,h=location.hostname||'<IP>';
- $('ninst').textContent=(k.peer?'Empfange von '+k.peer:'Wartet auf einen Sender')+(k.underruns?' · Aussetzer: '+k.underruns:'');
- const f='parec --format=s16le --rate='+k.rate+' --channels=2 -d @DEFAULT_MONITOR@';
- const t='Port '+k.port+' (UDP und TCP) · rohes PCM s16le, stereo, '+k.rate+' Hz\nTCP:\n'+f+' | nc '+h+' '+k.port+'\nUDP (Datagramme klein halten):\n'+f+' | dd bs=1440 iflag=fullblock status=none | nc -u '+h+' '+k.port;
- if($('nincmd').textContent!==t)$('nincmd').textContent=t}
+function netin(s) {
+  const n = s.source === 'net' && s.net;
+  $('nin').hidden = !n;
+  if (!n) return;
+  const k = s.net, h = location.hostname || '<IP>';
+  $('ninst').textContent = (k.peer ? 'Empfange von ' + k.peer : 'Wartet auf einen Sender') + (k.underruns ? ' · Aussetzer: ' + k.underruns : '');
+  const f = 'parec --format=s16le --rate=' + k.rate + ' --channels=2 -d @DEFAULT_MONITOR@';
+  const t = 'Port ' + k.port + ' (UDP und TCP) · rohes PCM s16le, stereo, ' + k.rate + ' Hz\n'
+    + 'TCP:\n' + f + ' | nc ' + h + ' ' + k.port + '\n'
+    + 'UDP (Datagramme klein halten):\n' + f + ' | dd bs=1440 iflag=fullblock status=none | nc -u ' + h + ' ' + k.port;
+  if ($('nincmd').textContent !== t) $('nincmd').textContent = t;
+}
 
 /* ---- Dateibrowser (Quelle Dateien): Ordner/Dateinamen sind Fremddaten -> nur per textContent ---- */
-const B={path:'/',cur:'',cursors:[''],page:0,lim:30,items:[],more:false,total:0,init:false};
-const dirname=p=>{const i=p.lastIndexOf('/');return i<=0?'/':p.slice(0,i)};
-const joinp=(p,n)=>(p==='/'?'':p)+'/'+n;
-function media(s){const m=s.source==='media';$('fb').hidden=!m;$('list').hidden=m||s.source==='net';
- if(!m){B.init=false;return}
- B.cur=s.path||'';$('fcount').textContent=s.count+' Titel in der Wiedergabeliste';
- if(!B.init){B.init=true;go(dirname(B.cur))}else markCur()}
-function go(p){B.cursors=[''];return browse(p,0)}
-async function browse(path,page){
- const q=new URLSearchParams({path,limit:B.lim}),a=B.cursors[page];if(a)q.set('after',a);
- let r;try{r=await fetch('/api/files?'+q)}catch(e){$('fmsg').textContent='keine Verbindung';return}
- if(!r.ok){if(path!=='/')return go('/');$('fmsg').textContent=r.status===404?'Keine SD-Karte oder Ordner nicht vorhanden':'Fehler beim Laden';return}
- const j=await r.json();B.path=j.path;B.page=page;B.items=j.items;B.more=j.more;B.total=j.total;$('fmsg').textContent='';fbRender()}
-function fPrev(){if(B.page>0)browse(B.path,B.page-1)}
-function fNext(){if(B.more&&B.items.length){B.cursors[B.page+1]=(B.items[B.items.length-1].d?'d:':'f:')+B.items[B.items.length-1].n;browse(B.path,B.page+1)}}
-function markCur(){document.querySelectorAll('#flist li[data-p]').forEach(l=>l.classList.toggle('cur',l.dataset.p===B.cur))}
-function fbRender(){
- const cr=$('crumbs');cr.replaceChildren();
- const add=(t,p)=>{const b=el('button',t);b.onclick=()=>go(p);cr.appendChild(b)};
- add('SD','/');let acc='/';for(const sg of (B.path==='/'?[]:B.path.slice(1).split('/'))){acc=joinp(acc,sg);cr.appendChild(el('span','›','mut'));add(sg,acc)}
- const mk=(ic,t,cls,fn,p)=>{const l=document.createElement('li');l.className=cls;if(p)l.dataset.p=p;l.append(el('span',ic),el('span',t,'n'));l.onclick=fn;return l};
- const rows=[];
- if(B.path!=='/'&&B.page===0)rows.push(mk('⬆','‥ eine Ebene höher','up',()=>go(dirname(B.path))));
- for(const x of B.items){const p=joinp(B.path,x.n);rows.push(x.d?mk('📁',x.n,'',()=>go(p)):mk('♪',x.n,p===B.cur?'cur':'',()=>playFile(p),p))}
- if(!B.items.length)rows.push(el('li','Keine Ordner oder abspielbaren Dateien hier','mut'));
- $('flist').replaceChildren(...rows);
- $('fprev').disabled=B.page===0;$('fnext').disabled=!B.more;
- $('fcnt').textContent=B.total?`${B.page*B.lim+1}–${B.page*B.lim+B.items.length} von ${B.total}`:''}
-async function playFile(p){
- let r;try{r=await fetch('/api/files/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})})}catch(e){$('fmsg').textContent='keine Verbindung';return}
- $('fmsg').textContent=r.ok?'':'Datei kann nicht abgespielt werden';if(r.ok)setTimeout(poll,500)}
-function allTitles(){$('fmsg').textContent='';c('media_all')}
+// path: angezeigter Ordner, cur: laufende Datei, cursors: "after"-Cursor je Seite, page: aktuelle Seite (0-basiert)
+const B = { path: '/', cur: '', cursors: [''], page: 0, lim: 30, items: [], more: false, total: 0, init: false };
+const dirname = p => {
+  const i = p.lastIndexOf('/');
+  return i <= 0 ? '/' : p.slice(0, i);
+};
+const joinp = (p, n) => (p === '/' ? '' : p) + '/' + n;
 
-/* ---- Serververzeichnis: alle Fremddaten nur per textContent ausgeben ---- */
-const D={off:0,lim:20,total:0,open:false,state:'',t:0};
-const el=(t,x,c)=>{const e=document.createElement(t);if(x!==undefined)e.textContent=x;if(c)e.className=c;return e};
-async function fav(){$('kmsg').textContent='Favorit angefordert …';await c('kiwi_fav');setTimeout(()=>{$('kmsg').textContent='Favorit angefordert – ohne SD-Karte oder bei bereits gespeicherter Frequenz bleibt die Liste unverändert';lastSrc=''},900)}
-async function dirInfo(){
- let i;try{i=await (await fetch('/api/dir')).json()}catch(e){return}
- const was=D.state;D.state=i.state;
- $('dui').hidden=!i.valid;$('dupd').disabled=!i.available||i.state==='updating';
- let t=!i.available?'Flash-Partition „kiwidb“ fehlt – partitions.csv aktualisieren und neu flashen.':i.valid?`${i.count} Server in der Liste (Stand ${i.generation}. Aktualisierung)`:'Noch keine Serverliste geladen.';
- const m=$('dinfo');m.textContent=t;m.className=i.state==='failed'?'err':'mut';
- if(i.state==='failed'){m.textContent=t+' · Fehler: '+i.msg}
- $('dprog').textContent=i.state==='updating'?`lädt … ${Math.round(i.bytes/1024)} KB, ${i.servers} Server`:'';
- if(i.state==='updating')D.t=setTimeout(dirInfo,1000);
- if(was==='updating'&&i.state==='ok'){await dirCountries();dirSearch(0)}
- return i}
-async function dirCountries(){
- try{const a=await (await fetch('/api/dir/countries')).json();const s=$('dc'),v=s.value;
-  s.replaceChildren(el('option','alle Länder'));s.firstChild.value='';
-  for(const c of a){const o=el('option',`${c.name} (${c.n})`);o.value=c.id;s.appendChild(o)}s.value=v}catch(e){}}
-async function dirOpen(){const i=await dirInfo();if(i&&i.valid&&!D.open){D.open=true;await dirCountries();dirSearch(0)}}
-async function dirUpdate(force,ask){
- if(ask&&!confirm('Die Serverliste (ca. 1 MB) wird geladen und in den Flash geschrieben. Währenddessen kann der Ton kurz aussetzen. Fortfahren?'))return;
- let r,j;try{r=await fetch('/api/dir/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force})});j=await r.json()}catch(e){alert('keine Verbindung');return}
- if(r.status===429&&!force){if(confirm(`Die letzte Aktualisierung ist erst kurz her (noch ${j.retry_in_s} s Mindestabstand). Trotzdem laden?`))return dirUpdate(true,false);return}
- if(!j.ok){alert(j.error||'Fehler');return}
- D.open=false;dirInfo()}
-async function dirSearch(off){
- D.off=Math.max(0,off||0);
- const p=new URLSearchParams({offset:D.off,limit:D.lim,sort:$('ds').value}),t=$('dt').value.trim();
- if(t)p.set('text',t);if($('dc').value)p.set('country',$('dc').value);if($('dq').value!=='0')p.set('snr',$('dq').value);
- if($('df').checked)p.set('free','1');if($('dfq').checked&&KF)p.set('freq',KF);
- $('dfv').textContent=KF?(KF/1000):'aktuelle';
- let r;try{r=await fetch('/api/dir/list?'+p)}catch(e){return}
- if(!r.ok){$('dcnt').textContent=r.status===400?'Suchtext zu lang oder ungültig':'Fehler';return}
- const j=await r.json();D.total=j.total;
- $('dcnt').textContent=j.total?`${j.offset+1}–${j.offset+j.items.length} von ${j.total}`:'keine Treffer';
- $('dprev').disabled=j.offset<=0;$('dnext').disabled=j.offset+j.items.length>=j.total;
- $('dlist').replaceChildren(...j.items.map(x=>{
-  const li=document.createElement('li'),d=document.createElement('div');
-  d.appendChild(el('b',x.name||x.host));
-  d.appendChild(el('span',[x.place,x.country].filter(Boolean).join(', ')+(x.place||x.country?' · ':'')+(x.max?`${x.users}/${x.max} Nutzer`:`${x.users} Nutzer`)+(x.snr?` · SNR ${x.snr} dB`:''),'mut'));
-  const b=el('button','Hören');b.onclick=()=>dirConnect(x.host,x.port);
-  li.append(d,b);return li}))}
-async function dirConnect(host,port){await post('/api/dir/connect',{host,port});setTimeout(poll,700)}
-poll();setInterval(poll,2000);
-</script></body></html>
+function media(s) {
+  const m = s.source === 'media';
+  $('fb').hidden = !m;
+  $('list').hidden = m || s.source === 'net';
+  if (!m) { B.init = false; return; }
+  B.cur = s.path || '';
+  $('fcount').textContent = s.count + ' Titel in der Wiedergabeliste';
+  if (!B.init) {
+    B.init = true;
+    go(dirname(B.cur));
+  } else markCur();
+}
+
+function go(p) {
+  B.cursors = [''];
+  return browse(p, 0);
+}
+
+async function browse(path, page) {
+  const q = new URLSearchParams({ path, limit: B.lim }), a = B.cursors[page];
+  if (a) q.set('after', a);
+  let r;
+  try {
+    r = await fetch('/api/files?' + q);
+  } catch (e) {
+    $('fmsg').textContent = 'keine Verbindung';
+    return;
+  }
+  if (!r.ok) {
+    if (path !== '/') return go('/');
+    $('fmsg').textContent = r.status === 404 ? 'Keine SD-Karte oder Ordner nicht vorhanden' : 'Fehler beim Laden';
+    return;
+  }
+  const j = await r.json();
+  B.path = j.path; B.page = page; B.items = j.items; B.more = j.more; B.total = j.total;
+  $('fmsg').textContent = '';
+  fbRender();
+}
+
+function fPrev() {
+  if (B.page > 0) browse(B.path, B.page - 1);
+}
+
+function fNext() {
+  if (B.more && B.items.length) {
+    const last = B.items[B.items.length - 1];
+    B.cursors[B.page + 1] = (last.d ? 'd:' : 'f:') + last.n;
+    browse(B.path, B.page + 1);
+  }
+}
+
+function markCur() {
+  document.querySelectorAll('#flist li[data-p]').forEach(l => l.classList.toggle('cur', l.dataset.p === B.cur));
+}
+
+function fbRender() {
+  // Brotkrumen: SD › Ordner › Unterordner
+  const cr = $('crumbs');
+  cr.replaceChildren();
+  const add = (t, p) => {
+    const b = el('button', t);
+    b.onclick = () => go(p);
+    cr.appendChild(b);
+  };
+  add('SD', '/');
+  let acc = '/';
+  for (const sg of (B.path === '/' ? [] : B.path.slice(1).split('/'))) {
+    acc = joinp(acc, sg);
+    cr.appendChild(el('span', '›', 'mut'));
+    add(sg, acc);
+  }
+
+  // Zeilen: "eine Ebene höher", Ordner, Dateien
+  const mk = (ic, t, cls, fn, p) => {
+    const l = document.createElement('li');
+    l.className = cls;
+    if (p) l.dataset.p = p;
+    l.append(el('span', ic), el('span', t, 'n'));
+    l.onclick = fn;
+    return l;
+  };
+  const rows = [];
+  if (B.path !== '/' && B.page === 0) rows.push(mk('⬆', '‥ eine Ebene höher', 'up', () => go(dirname(B.path))));
+  for (const x of B.items) {
+    const p = joinp(B.path, x.n);
+    rows.push(x.d
+      ? mk('📁', x.n, '', () => go(p))
+      : mk('♪', x.n, p === B.cur ? 'cur' : '', () => playFile(p), p));
+  }
+  if (!B.items.length) rows.push(el('li', 'Keine Ordner oder abspielbaren Dateien hier', 'mut'));
+  $('flist').replaceChildren(...rows);
+
+  $('fprev').disabled = B.page === 0;
+  $('fnext').disabled = !B.more;
+  $('fcnt').textContent = B.total ? `${B.page * B.lim + 1}–${B.page * B.lim + B.items.length} von ${B.total}` : '';
+}
+
+async function playFile(p) {
+  let r;
+  try {
+    r = await fetch('/api/files/play', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) });
+  } catch (e) {
+    $('fmsg').textContent = 'keine Verbindung';
+    return;
+  }
+  $('fmsg').textContent = r.ok ? '' : 'Datei kann nicht abgespielt werden';
+  if (r.ok) setTimeout(poll, 500);
+}
+
+function allTitles() {
+  $('fmsg').textContent = '';
+  c('media_all');
+}
+
+/* ---- KiwiSDR-Serververzeichnis: alle Fremddaten nur per textContent ausgeben ---- */
+// off/lim: Seite der Trefferliste, total: Trefferzahl, open: Liste wurde schon geladen, state: Zustand der Aktualisierung
+const D = { off: 0, lim: 20, total: 0, open: false, state: '', t: 0 };
+
+async function dirInfo() {
+  let i;
+  try {
+    i = await (await fetch('/api/dir')).json();
+  } catch (e) {
+    return;
+  }
+  const was = D.state;
+  D.state = i.state;
+  $('dui').hidden = !i.valid;
+  $('dupd').disabled = !i.available || i.state === 'updating';
+
+  const t = !i.available
+    ? 'Flash-Partition „kiwidb“ fehlt – partitions.csv aktualisieren und neu flashen.'
+    : i.valid
+      ? `${i.count} Server in der Liste (Stand ${i.generation}. Aktualisierung)`
+      : 'Noch keine Serverliste geladen.';
+  const m = $('dinfo');
+  m.textContent = t;
+  m.className = i.state === 'failed' ? 'err' : 'mut';
+  if (i.state === 'failed') m.textContent = t + ' · Fehler: ' + i.msg;
+
+  $('dprog').textContent = i.state === 'updating' ? `lädt … ${Math.round(i.bytes / 1024)} KB, ${i.servers} Server` : '';
+  if (i.state === 'updating') D.t = setTimeout(dirInfo, 1000);
+  if (was === 'updating' && i.state === 'ok') {
+    await dirCountries();
+    dirSearch(0);
+  }
+  return i;
+}
+
+async function dirCountries() {
+  try {
+    const a = await (await fetch('/api/dir/countries')).json();
+    const s = $('dc'), v = s.value;
+    s.replaceChildren(el('option', 'alle Länder'));
+    s.firstChild.value = '';
+    for (const c of a) {
+      const o = el('option', `${c.name} (${c.n})`);
+      o.value = c.id;
+      s.appendChild(o);
+    }
+    s.value = v;
+  } catch (e) {}
+}
+
+async function dirOpen() {
+  const i = await dirInfo();
+  if (i && i.valid && !D.open) {
+    D.open = true;
+    await dirCountries();
+    dirSearch(0);
+  }
+}
+
+async function dirUpdate(force, ask) {
+  if (ask && !confirm('Die Serverliste (ca. 1 MB) wird geladen und in den Flash geschrieben. Währenddessen kann der Ton kurz aussetzen. Fortfahren?')) return;
+  let r, j;
+  try {
+    r = await fetch('/api/dir/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }) });
+    j = await r.json();
+  } catch (e) {
+    alert('keine Verbindung');
+    return;
+  }
+  if (r.status === 429 && !force) {
+    if (confirm(`Die letzte Aktualisierung ist erst kurz her (noch ${j.retry_in_s} s Mindestabstand). Trotzdem laden?`)) return dirUpdate(true, false);
+    return;
+  }
+  if (!j.ok) {
+    alert(j.error || 'Fehler');
+    return;
+  }
+  D.open = false;
+  dirInfo();
+}
+
+async function dirSearch(off) {
+  D.off = Math.max(0, off || 0);
+  const p = new URLSearchParams({ offset: D.off, limit: D.lim, sort: $('ds').value }), t = $('dt').value.trim();
+  if (t) p.set('text', t);
+  if ($('dc').value) p.set('country', $('dc').value);
+  if ($('dq').value !== '0') p.set('snr', $('dq').value);
+  if ($('df').checked) p.set('free', '1');
+  if ($('dfq').checked && KF) p.set('freq', KF);
+  $('dfv').textContent = KF ? (KF / 1000) : 'aktuelle';
+
+  let r;
+  try {
+    r = await fetch('/api/dir/list?' + p);
+  } catch (e) {
+    return;
+  }
+  if (!r.ok) {
+    $('dcnt').textContent = r.status === 400 ? 'Suchtext zu lang oder ungültig' : 'Fehler';
+    return;
+  }
+  const j = await r.json();
+  D.total = j.total;
+  $('dcnt').textContent = j.total ? `${j.offset + 1}–${j.offset + j.items.length} von ${j.total}` : 'keine Treffer';
+  $('dprev').disabled = j.offset <= 0;
+  $('dnext').disabled = j.offset + j.items.length >= j.total;
+
+  $('dlist').replaceChildren(...j.items.map(x => {
+    const li = document.createElement('li'), d = document.createElement('div');
+    d.appendChild(el('b', x.name || x.host));
+    d.appendChild(el('span',
+      [x.place, x.country].filter(Boolean).join(', ')
+        + (x.place || x.country ? ' · ' : '')
+        + (x.max ? `${x.users}/${x.max} Nutzer` : `${x.users} Nutzer`)
+        + (x.snr ? ` · SNR ${x.snr} dB` : ''),
+      'mut'));
+    const b = el('button', 'Hören');
+    b.onclick = () => dirConnect(x.host, x.port);
+    li.append(d, b);
+    return li;
+  }));
+}
+
+async function dirConnect(host, port) {
+  await post('/api/dir/connect', { host, port });
+  setTimeout(poll, 700);
+}
+
+/* ---- Start ---- */
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>
