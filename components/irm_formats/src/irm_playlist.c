@@ -50,6 +50,54 @@ bool irm_playlist_add(irm_playlist_t *pl, const char *uri, const char *name)
     return true;
 }
 
+bool irm_playlist_remove(irm_playlist_t *pl, size_t idx)
+{
+    if (!pl || idx >= pl->count) return false;
+    memmove(&pl->items[idx], &pl->items[idx + 1], (pl->count - idx - 1) * sizeof(item_t));
+    pl->count--;
+    return true;
+}
+
+bool irm_m3u_remove_entry(char *text, size_t *len, const char *uri, size_t nth)
+{
+    if (!text || !len || !uri || !*uri) return false;
+    const size_t n = *len, ul = strlen(uri);
+    size_t pos = (n >= 3 && (unsigned char)text[0] == 0xEF && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF) ? 3 : 0;
+    size_t ext_s = 0, ext_e = 0;     /* Bereich der #EXTINF-Zeile, die gerade auf ihre URI wartet (wie "pending" im Parser) */
+    bool have_ext = false;
+    while (pos < n) {
+        size_t e = pos;
+        while (e < n && text[e] != '\n') e++;
+        const size_t next = e < n ? e + 1 : n;
+        size_t a = pos, b = e;       /* Zeile ohne umgebende Leerzeichen/Tabs/CR */
+        while (a < b && (text[a] == ' ' || text[a] == '\t')) a++;
+        while (b > a && (text[b - 1] == ' ' || text[b - 1] == '\t' || text[b - 1] == '\r')) b--;
+        if (a == b) { pos = next; continue; }
+        if (text[a] == '#') {
+            if (b - a >= 8 && strncmp(text + a, "#EXTINF:", 8) == 0 && memchr(text + a, ',', b - a)) { have_ext = true; ext_s = pos; ext_e = next; }
+            pos = next;
+            continue;
+        }
+        if (b - a == ul && memcmp(text + a, uri, ul) == 0) {
+            if (nth == 0) {
+                size_t m = n;
+                memmove(text + pos, text + next, n - next);          /* zuerst die hintere Zeile (URI) ... */
+                m -= next - pos;
+                if (have_ext) {                                      /* ... dann die zugehoerige #EXTINF-Zeile davor */
+                    memmove(text + ext_s, text + ext_e, m - ext_e);
+                    m -= ext_e - ext_s;
+                }
+                *len = m;
+                return true;
+            }
+            nth--;
+        }
+        have_ext = false;
+        pos = next;
+    }
+    return false;
+}
+
 static char *trim(char *s)
 {
     while (*s == ' ' || *s == '\t') s++;

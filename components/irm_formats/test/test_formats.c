@@ -29,6 +29,50 @@ int main(void)
     assert(irm_eqfile_parse(e, strlen(e), eq, 3, -12, 12) && eq[0]==1 && eq[1]==-12 && eq[2]==12);
     assert(!irm_eqfile_parse("1\n", 2, eq, 3, -12, 12));
     char b[32]; assert(irm_eqfile_format(eq, 3, b, sizeof b) == strlen("1\n-12\n12\n"));
+
+    /* Eintrag entfernen: Liste im Speicher */
+    pl = irm_playlist_new(4);
+    irm_playlist_add(pl, "u0", "A"); irm_playlist_add(pl, "u1", "B"); irm_playlist_add(pl, "u2", "C");
+    assert(!irm_playlist_remove(pl, 3) && irm_playlist_count(pl) == 3);
+    assert(irm_playlist_remove(pl, 1) && irm_playlist_count(pl) == 2);
+    assert(!strcmp(irm_playlist_uri(pl, 0), "u0") && !strcmp(irm_playlist_uri(pl, 1), "u2") && !strcmp(irm_playlist_name(pl, 1), "C"));
+    assert(irm_playlist_remove(pl, 1) && irm_playlist_remove(pl, 0) && irm_playlist_count(pl) == 0 && !irm_playlist_remove(pl, 0));
+    assert(irm_playlist_add(pl, "neu", "N") && !strcmp(irm_playlist_name(pl, 0), "N"));
+    irm_playlist_free(pl);
+
+    /* Eintrag entfernen: M3U-Text (URI-Zeile + zugehoerige EXTINF-Zeile, alles andere unveraendert) */
+    {
+        char t1[512]; size_t l;
+        const char *src = "#EXTM3U\r\n# Kommentar\r\n#EXTINF:-1,Eins\r\nkiwi://a/?f=1\r\n\r\n#EXTINF:-1,Zwei\r\nkiwi://b/?f=2\r\nkiwi://kaputt\r\n#EXTINF:-1,Drei\r\nkiwi://c/?f=3";
+        strcpy(t1, src); l = strlen(t1);
+        assert(irm_m3u_remove_entry(t1, &l, "kiwi://b/?f=2", 0));
+        t1[l] = 0;
+        assert(!strcmp(t1, "#EXTM3U\r\n# Kommentar\r\n#EXTINF:-1,Eins\r\nkiwi://a/?f=1\r\n\r\nkiwi://kaputt\r\n#EXTINF:-1,Drei\r\nkiwi://c/?f=3"));
+        assert(!irm_m3u_remove_entry(t1, &l, "kiwi://b/?f=2", 0) && !irm_m3u_remove_entry(t1, &l, "kiwi://nix", 0));
+        assert(irm_m3u_remove_entry(t1, &l, "kiwi://c/?f=3", 0));   /* letzte Zeile ohne Zeilenende */
+        t1[l] = 0;
+        assert(!strcmp(t1, "#EXTM3U\r\n# Kommentar\r\n#EXTINF:-1,Eins\r\nkiwi://a/?f=1\r\n\r\nkiwi://kaputt\r\n"));
+        assert(irm_m3u_remove_entry(t1, &l, "kiwi://a/?f=1", 0));
+        t1[l] = 0;
+        assert(!strcmp(t1, "#EXTM3U\r\n# Kommentar\r\n\r\nkiwi://kaputt\r\n"));   /* EXTINF des Eintrags mit entfernt, Fremdes bleibt */
+        /* Duplikate: nth waehlt das Vorkommen; EXTINF gehoert nur zum jeweils eigenen Eintrag */
+        strcpy(t1, "#EXTINF:-1,X1\nu\n#EXTINF:-1,X2\nu\nv\n"); l = strlen(t1);
+        assert(irm_m3u_remove_entry(t1, &l, "u", 1)); t1[l] = 0;
+        assert(!strcmp(t1, "#EXTINF:-1,X1\nu\nv\n"));
+        /* BOM, Leerzeichen um die URI, EXTINF ohne Komma gehoert nicht dazu, URI als erste Zeile */
+        strcpy(t1, "\xEF\xBB\xBF  kiwi://z  \n#EXTINF:-1,Name\nq\n#EXTINF:5\nw\n"); l = strlen(t1);
+        assert(irm_m3u_remove_entry(t1, &l, "kiwi://z", 0)); t1[l] = 0;
+        assert(!strcmp(t1, "\xEF\xBB\xBF#EXTINF:-1,Name\nq\n#EXTINF:5\nw\n"));
+        assert(irm_m3u_remove_entry(t1, &l, "w", 0)); t1[l] = 0;
+        assert(!strcmp(t1, "\xEF\xBB\xBF#EXTINF:-1,Name\nq\n#EXTINF:5\n"));
+        assert(!irm_m3u_remove_entry(t1, &l, "", 0) && !irm_m3u_remove_entry(NULL, &l, "q", 0));
+        /* Ergebnis wird vom Parser wieder gelesen */
+        strcpy(t1, "#EXTM3U\n#EXTINF:-1,A\nu1\n#EXTINF:-1,B\nu2\n#EXTINF:-1,C\nu3\n"); l = strlen(t1);
+        assert(irm_m3u_remove_entry(t1, &l, "u2", 0));
+        pl = irm_playlist_new(8);
+        assert(irm_playlist_parse_m3u(pl, t1, l) == 2 && !strcmp(irm_playlist_name(pl, 0), "A") && !strcmp(irm_playlist_name(pl, 1), "C"));
+        irm_playlist_free(pl);
+    }
     puts("irm_formats: alle Tests ok");
     return 0;
 }

@@ -57,6 +57,25 @@ esp_err_t irm_files_append_playlist(const char *path, const char *name, const ch
     return (ok && rc == 0) ? ESP_OK : ESP_FAIL;
 }
 
+esp_err_t irm_files_remove_playlist_entry(const char *path, const char *uri, size_t nth)
+{
+    if (!path || !uri || !uri[0]) return ESP_ERR_INVALID_ARG;
+    char tmp[IRM_PLAYLIST_URI_MAX + 8];
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) return ESP_ERR_INVALID_ARG;
+    char *txt; size_t len;
+    esp_err_t e = irm_files_read(path, 64 * 1024, &txt, &len);
+    if (e != ESP_OK) return e;
+    if (!irm_m3u_remove_entry(txt, &len, uri, nth)) { free(txt); return ESP_ERR_NOT_FOUND; }
+    e = irm_files_write(tmp, txt, len);
+    free(txt);
+    if (e != ESP_OK) { remove(tmp); return e; }
+    if (rename(tmp, path) != 0) {                      /* FAT-Treiber/Hosts, die ein vorhandenes Ziel nicht ueberschreiben */
+        remove(path);
+        if (rename(tmp, path) != 0) { ESP_LOGW(TAG, "%s: Umbenennen fehlgeschlagen, Ergebnis liegt in %s", path, tmp); return ESP_FAIL; }
+    }
+    return ESP_OK;
+}
+
 esp_err_t irm_files_load_playlist(const char *path, irm_playlist_t *pl)
 {
     char *txt; size_t len;

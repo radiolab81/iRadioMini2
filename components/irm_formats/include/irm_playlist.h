@@ -24,6 +24,18 @@ const char *irm_playlist_name(const irm_playlist_t *pl, size_t idx);
 /** Eintrag anhaengen. Leere/zu lange URIs werden abgelehnt. name darf NULL sein. */
 bool irm_playlist_add(irm_playlist_t *pl, const char *uri, const char *name);
 
+/** Eintrag idx entfernen; die folgenden Eintraege ruecken nach. false bei ungueltigem Index. */
+bool irm_playlist_remove(irm_playlist_t *pl, size_t idx);
+
+/**
+ * Aus M3U-Text (in place) den Eintrag mit der URI `uri` entfernen: die URI-Zeile samt der #EXTINF-Zeile, die der Parser ihr zuordnet.
+ * Entfernt wird das (nth+1)-te Vorkommen der URI (nth = Anzahl frueherer Vorkommen, die stehen bleiben).
+ * Alle uebrigen Zeilen (Kommentare, Leerzeilen, ungueltige Eintraege, Zeilenenden, BOM) bleiben unveraendert.
+ * @param len  in: Laenge des Textes, out: neue Laenge (kein Terminator wird geschrieben)
+ * @return true, wenn ein Eintrag entfernt wurde
+ */
+bool irm_m3u_remove_entry(char *text, size_t *len, const char *uri, size_t nth);
+
 /**
  * M3U/Textliste parsen. Unterstuetzt LF/CRLF, UTF-8-BOM, Leerzeilen, '#'-Kommentare
  * und "#EXTINF:<dauer>,<name>" als Anzeigename fuer die folgende URI.
