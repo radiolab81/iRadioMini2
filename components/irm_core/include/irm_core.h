@@ -25,7 +25,8 @@ typedef enum {
     IRM_CMD_KIWI_STEP,      /* value = Frequenzschritt in Hz, vorzeichenbehaftet */
     IRM_CMD_KIWI_MODE,      /* value = Index der Modus-Tabelle (irm_kiwi_mode_name), < 0 = naechster Modus */
     IRM_CMD_KIWI_CONNECT,   /* value = Datenbankindex eines Verzeichnisservers (irm_dir): Quelle KiwiSDR, aktuelle Frequenz/Modus beibehalten */
-    IRM_CMD_KIWI_FAVORITE,  /* aktuellen Kiwi-Eintrag (mit eingestellter Frequenz/Modus) in /kiwi.m3u speichern */
+    IRM_CMD_KIWI_FAVORITE,  /* aktuellen Kiwi-Eintrag (mit eingestellter Frequenz/Modus) in /kiwi.m3u speichern; Name: irm_control_kiwi_favorite() */
+    IRM_CMD_KIWI_DELETE,    /* value = Index eines Favoriten in der Kiwi-Liste: aus /kiwi.m3u und aus der Liste entfernen (laeuft er gerade, spielt er als Direkteintrag weiter) */
     IRM_CMD_MEDIA_ALL,      /* Quelle Dateien: gesamte SD-Karte rekursiv als Playlist (Standard beim Wechsel zur Quelle) */
     IRM_CMD_MEDIA_PLAY_PATH,/* Datei abspielen; Pfad liegt in irm_control (siehe irm_control_play_path), Playlist = Dateien des Ordners */
     /* intern (nur von irm_control/irm_audio verwendet) */

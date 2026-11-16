@@ -19,6 +19,11 @@ esp_err_t irm_control_browse(const irm_dl_req_t *r, char **json);
 /** Datei (Pfad relativ zur SD-Wurzel, z. B. "/Rock/a.mp3") abspielen: Quelle wird Dateien, die Playlist besteht aus den Dateien dieses Ordners
  *  (alphabetisch), Weiter/Zurueck/Titelende folgen darin. ESP_ERR_INVALID_ARG: unzulaessiger Pfad; ESP_ERR_NOT_FOUND: keine SD-Karte/keine abspielbare Datei. */
 esp_err_t irm_control_play_path(const char *rel_path);
+/** Kiwi-Favorit speichern (wie IRM_CMD_KIWI_FAVORITE), aber unter dem Namen `name` (zugeschnitten auf 63 Bytes, Steuerzeichen werden zu Leerzeichen);
+ *  NULL oder leer = Name des laufenden Eintrags. */
+esp_err_t irm_control_kiwi_favorite(const char *name);
+/** Anzahl der gespeicherten Kiwi-Favoriten (Eintraege der Liste vor einem eventuellen Direkteintrag; nur diese lassen sich mit IRM_CMD_KIWI_DELETE loeschen). */
+size_t irm_control_kiwi_favorites(void);
 #ifdef __cplusplus
 }
 #endif

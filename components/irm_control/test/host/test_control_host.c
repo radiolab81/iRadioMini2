@@ -124,6 +124,14 @@ esp_err_t irm_files_append_playlist(const char *path, const char *name, const ch
     if (app_fail) return ESP_FAIL;
     app_calls++; strcpy(app_path, path); strcpy(app_name, name ? name : ""); strcpy(app_uri, uri); return ESP_OK;
 }
+static int rm_calls, rm_fail, rm_notfound; static size_t rm_nth; static char rm_uri[256];
+esp_err_t irm_files_remove_playlist_entry(const char *path, const char *uri, size_t nth)
+{
+    (void)path;
+    if (rm_fail) return ESP_FAIL;
+    rm_calls++; rm_nth = nth; strcpy(rm_uri, uri);
+    return rm_notfound ? ESP_ERR_NOT_FOUND : ESP_OK;
+}
 static void set_kiwi_status(uint32_t f, const char *mode) { irm_status_t t; irm_status_get(&t); /* wie irm_kiwi: Abstimmung im Status veroeffentlichen */
     pthread_mutex_lock(&sm); g_st.kiwi_freq_hz = f; strcpy(g_st.kiwi_mode, mode); pthread_mutex_unlock(&sm); (void)t; }
 
@@ -359,6 +367,84 @@ int main(void)
     CHECK(app_calls == 2 && irm_control_item_count(IRM_SOURCE_KIWI) == 5, "regulaerer Favorit (kein Direkteintrag) wird zusaetzlich angehaengt");
     cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO); cmd(IRM_CMD_KIWI_FAVORITE, 0);
     CHECK(app_calls == 2, "im Radiobetrieb ignoriert");
+    cmd(IRM_CMD_STOP, 0);
+
+    printf("== Favorit mit eigenem Namen (Web-UI)\n");
+    cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_KIWI); cmd(IRM_CMD_GOTO, 0);
+    set_kiwi_status(6150000, "am");
+    CHECK(irm_control_kiwi_favorite("  Mein\tSender\nWWV  ") == ESP_OK, "irm_control_kiwi_favorite akzeptiert den Namen"); settle();
+    CHECK(app_calls == 3 && !strcmp(app_name, "Mein Sender WWV") && strstr(app_uri, "a.example:8073/?f=6150&mode=am"), "Name bereinigt (Steuerzeichen, Raender): '%s' | %s", app_name, app_uri);
+    { char n2[IRM_NAME_MAX_LEN]; size_t cnt = irm_control_item_count(IRM_SOURCE_KIWI);
+      irm_control_item(IRM_SOURCE_KIWI, cnt - 1, n2, sizeof n2, NULL, 0);
+      CHECK(!strcmp(n2, "Mein Sender WWV"), "Liste im Speicher traegt den eigenen Namen: '%s'", n2);
+      CHECK(!strcmp(S().name, "DCF77"), "laufender Eintrag behaelt seinen Namen (anderer Eintrag, nur ein Favorit mehr)");
+      CHECK(S().count == (int)cnt && S().kiwi_freq_hz == 6150000 && !strcmp(S().kiwi_mode, "am"), "Abstimmung im Status bleibt erhalten (count=%d)", S().count); }
+    set_kiwi_status(7000000, "lsb");
+    irm_control_kiwi_favorite("A\xC3\xA4" "BCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz\xC3\xA4\xC3\xA4\xC3\xA4"); settle();
+    CHECK(app_calls == 4 && strlen(app_name) <= 63 && strlen(app_name) >= 60, "zu langer Name gekuerzt (%zu Bytes)", strlen(app_name));
+    {   /* kein Halb-Zeichen am Ende: der Name muss gueltiges UTF-8 sein */
+        const unsigned char *u = (const unsigned char *)app_name; int bad = 0; size_t i = 0;
+        while (u[i]) { int need = u[i] >= 0xF0 ? 3 : u[i] >= 0xE0 ? 2 : u[i] >= 0xC0 ? 1 : 0; if ((u[i] & 0xC0) == 0x80) bad = 1; for (int k = 1; k <= need; k++) if ((u[i + k] & 0xC0) != 0x80) bad = 1; i += need + 1; }
+        CHECK(!bad, "gekuerzter Name ist gueltiges UTF-8");
+    }
+    set_kiwi_status(7100000, "usb"); irm_control_kiwi_favorite(NULL); settle();
+    CHECK(app_calls == 5 && !strcmp(app_name, "DCF77"), "ohne Namen: Name des laufenden Eintrags ('%s')", app_name);
+    set_kiwi_status(7200000, "usb"); irm_control_kiwi_favorite("Nur Leerraum:  \t "); settle();
+    CHECK(app_calls == 6 && !strcmp(app_name, "Nur Leerraum:"), "Name nur aus Leerraum und Doppelpunkt: Raender entfernt ('%s')", app_name);
+    set_kiwi_status(7300000, "usb"); cmd(IRM_CMD_KIWI_FAVORITE, 0);
+    CHECK(app_calls == 7 && !strcmp(app_name, "DCF77"), "vorgegebener Name wirkt nicht auf das naechste Kommando ('%s')", app_name);
+
+    printf("== Favoriten loeschen\n");
+    {   /* Liste: 0 DCF77, 1 Kurzwelle(+kaputt uebersprungen -> Indizes der gueltigen), ... */
+        size_t before = irm_control_item_count(IRM_SOURCE_KIWI), favs = irm_control_kiwi_favorites();
+        char nm[IRM_NAME_MAX_LEN], ur[IRM_URI_MAX_LEN], nm2[IRM_NAME_MAX_LEN];
+        CHECK(favs <= before && favs >= 3, "Favoritenzaehler: %zu von %zu Eintraegen", favs, before);
+        irm_control_item(IRM_SOURCE_KIWI, 2, nm, sizeof nm, ur, sizeof ur);
+        irm_control_item(IRM_SOURCE_KIWI, 3, nm2, sizeof nm2, NULL, 0);
+        cmd(IRM_CMD_GOTO, 0); EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 0);
+        set_kiwi_status(77500, "am");
+        int kp2 = k_plays; rm_calls = 0;
+        cmd(IRM_CMD_KIWI_DELETE, 2);
+        CHECK(rm_calls == 1 && !strcmp(rm_uri, ur) && rm_nth == 0, "Datei: Eintrag '%s' entfernt (nth=%zu)", nm, rm_nth);
+        CHECK(irm_control_item_count(IRM_SOURCE_KIWI) == before - 1 && irm_control_kiwi_favorites() == favs - 1, "Liste um einen Eintrag kuerzer");
+        { char c2[IRM_NAME_MAX_LEN]; irm_control_item(IRM_SOURCE_KIWI, 2, c2, sizeof c2, NULL, 0); CHECK(!strcmp(c2, nm2), "nachfolgender Eintrag rueckt nach: '%s'", c2); }
+        EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 0);
+        CHECK(k_plays == kp2 && S().count == (int)(before - 1) && S().kiwi_freq_hz == 77500, "laufender Eintrag davor: kein Neustart, Abstimmung im Status unveraendert");
+
+        cmd(IRM_CMD_GOTO, 3); EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 3);
+        irm_control_item(IRM_SOURCE_KIWI, 3, nm, sizeof nm, NULL, 0);
+        cmd(IRM_CMD_KIWI_DELETE, 1);
+        EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, 2);
+        { char c2[IRM_NAME_MAX_LEN]; irm_control_item(IRM_SOURCE_KIWI, 2, c2, sizeof c2, NULL, 0); CHECK(!strcmp(c2, nm) && !strcmp(S().name, nm), "Loeschen VOR dem laufenden Eintrag: Index rutscht mit, Name '%s' bleibt", c2); }
+
+        /* laufenden Favoriten loeschen: spielt als Direkteintrag weiter */
+        irm_control_item(IRM_SOURCE_KIWI, 0, nm, sizeof nm, NULL, 0);
+        cmd(IRM_CMD_GOTO, 0); set_kiwi_status(77700, "usb");
+        size_t cnt0 = irm_control_item_count(IRM_SOURCE_KIWI), favs0 = irm_control_kiwi_favorites(); kp2 = k_plays; rm_calls = 0;
+        cmd(IRM_CMD_KIWI_DELETE, 0);
+        CHECK(rm_calls == 1 && k_plays == kp2 && k_active, "laufender Favorit geloescht: Sitzung laeuft weiter (kein Neustart)");
+        CHECK(irm_control_kiwi_favorites() == favs0 - 1 && irm_control_item_count(IRM_SOURCE_KIWI) == cnt0, "Favoriten -1, Gesamtzahl gleich (Direkteintrag ersetzt ihn)");
+        EXPECT_STATE(IRM_SOURCE_KIWI, IRM_PLAYER_CONNECTING, (int)(favs0 - 1));
+        { char c2[IRM_NAME_MAX_LEN], u2[IRM_URI_MAX_LEN]; irm_control_item(IRM_SOURCE_KIWI, favs0 - 1, c2, sizeof c2, u2, sizeof u2);
+          CHECK(!strcmp(c2, nm) && !strcmp(S().name, nm) && strstr(u2, "f=77.7") && strstr(u2, "mode=usb"), "Direkteintrag: Name '%s', URI mit eingestellter Frequenz: %s", c2, u2); }
+        CHECK(S().kiwi_freq_hz == 77700 && !strcmp(S().kiwi_mode, "usb"), "Abstimmung im Status unveraendert");
+        cmd(IRM_CMD_KIWI_FAVORITE, 0);   /* der Direkteintrag laesst sich wieder als Favorit sichern */
+        CHECK(irm_control_kiwi_favorites() == favs0 && irm_control_item_count(IRM_SOURCE_KIWI) == cnt0, "Direkteintrag wieder als Favorit gespeichert");
+
+        /* ungueltige Faelle */
+        rm_calls = 0; cnt0 = irm_control_item_count(IRM_SOURCE_KIWI);
+        cmd(IRM_CMD_KIWI_DELETE, -1); cmd(IRM_CMD_KIWI_DELETE, 99); cmd(IRM_CMD_KIWI_DELETE, (int32_t)irm_control_kiwi_favorites());
+        CHECK(rm_calls == 0 && irm_control_item_count(IRM_SOURCE_KIWI) == cnt0, "ungueltiger Index / Direkteintrag: nichts geloescht");
+        sd_mounted = 0; cmd(IRM_CMD_KIWI_DELETE, 0); sd_mounted = 1;
+        CHECK(rm_calls == 0 && irm_control_item_count(IRM_SOURCE_KIWI) == cnt0, "ohne SD-Karte nichts geloescht");
+        rm_fail = 1; cmd(IRM_CMD_KIWI_DELETE, 0); rm_fail = 0;
+        CHECK(irm_control_item_count(IRM_SOURCE_KIWI) == cnt0, "Schreibfehler: Liste im Speicher unveraendert");
+        rm_notfound = 1; cmd(IRM_CMD_KIWI_DELETE, 0); rm_notfound = 0;
+        CHECK(irm_control_item_count(IRM_SOURCE_KIWI) == cnt0 - 1, "Eintrag nicht in der Datei (Vorgabeeintrag): trotzdem aus der Liste entfernt");
+        cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO); rm_calls = 0; cnt0 = irm_control_item_count(IRM_SOURCE_KIWI);
+        cmd(IRM_CMD_KIWI_DELETE, 0);
+        CHECK(rm_calls == 0 && irm_control_item_count(IRM_SOURCE_KIWI) == cnt0, "im Radiobetrieb ignoriert");
+    }
     cmd(IRM_CMD_STOP, 0);
 
 

@@ -27,7 +27,7 @@
 
 static const char *TAG = "irm_ctrl";
 
-enum { P_PLAYER = 1, P_ITEM = 2, P_VOL = 4, P_FMT = 8, P_EQ = 16 };
+enum { P_PLAYER = 1, P_ITEM = 2, P_VOL = 4, P_FMT = 8, P_EQ = 16, P_LIST = 32 };
 typedef struct { unsigned mask; irm_status_t v; } patch_t;
 
 static struct {
@@ -46,6 +46,7 @@ static struct {
     bool               dyn_valid;    /* "Direkteintrag": im Verzeichnis gewaehlter Server, steht hinter den Favoriten (virtueller Index = Anzahl Favoriten) */
     char               dyn_name[IRM_NAME_MAX_LEN], dyn_uri[IRM_URI_MAX_LEN];
     char               pending_path[IRM_DL_PATH_MAX + 1];   /* Ziel von IRM_CMD_MEDIA_PLAY_PATH (list_lock) */
+    char               pending_name[IRM_NAME_MAX_LEN];      /* Name fuer den naechsten IRM_CMD_KIWI_FAVORITE, leer = Name des laufenden Eintrags (list_lock) */
     bool               kiwi_fresh;   /* naechster Kiwi-Start: Abstimmung aus dem Eintrag statt der zuletzt eingestellten */
     int                retry_s;
     esp_timer_handle_t retry_timer;
@@ -60,6 +61,10 @@ static void apply_patch(irm_status_t *s, void *ctx)
         memcpy(s->name, p->v.name, sizeof(s->name)); memcpy(s->uri, p->v.uri, sizeof(s->uri));
         s->sample_rate = 0; s->channels = 0; s->bits = 0; s->bitrate = 0;
         s->kiwi_freq_hz = 0; s->kiwi_mode[0] = 0; s->kiwi_rssi_dbm = IRM_RSSI_NONE;   /* irm_kiwi veroeffentlicht sie nach dem Start neu */
+    }
+    if (p->mask & P_LIST) {          /* Eintrag/Liste geaendert, die laufende Wiedergabe aber nicht: Format und Abstimmung bleiben stehen */
+        s->index = p->v.index; s->count = p->v.count;
+        memcpy(s->name, p->v.name, sizeof(s->name)); memcpy(s->uri, p->v.uri, sizeof(s->uri));
     }
     if (p->mask & P_VOL) s->volume = p->v.volume;
     if (p->mask & P_FMT) { s->sample_rate = p->v.sample_rate; s->channels = p->v.channels; s->bits = p->v.bits; s->bitrate = p->v.bitrate; }
@@ -114,6 +119,21 @@ bool irm_control_item(irm_source_t src, size_t idx, char *name, size_t nsz, char
 static void publish_item(void)
 {
     patch_t p = { .mask = P_ITEM };
+    p.v.source = c.source;
+    p.v.index = c.index[c.source];
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    p.v.count = (int32_t)count_of(c.source);
+    const char *u = item_uri(c.source, (size_t)p.v.index);
+    if (u) { strlcpy(p.v.uri, u, sizeof(p.v.uri)); strlcpy(p.v.name, item_name(c.source, (size_t)p.v.index), sizeof(p.v.name)); }
+    else p.v.index = -1;
+    xSemaphoreGive(c.list_lock);
+    publish(&p);
+}
+
+/* Wie publish_item(), aber ohne die laufende Wiedergabe anzufassen (kein Zuruecksetzen von Format und Kiwi-Abstimmung): fuer Listenaenderungen bei laufendem Eintrag */
+static void publish_item_keep(void)
+{
+    patch_t p = { .mask = P_LIST };
     p.v.source = c.source;
     p.v.index = c.index[c.source];
     xSemaphoreTake(c.list_lock, portMAX_DELAY);
@@ -286,6 +306,38 @@ esp_err_t irm_control_browse(const irm_dl_req_t *r, char **json)
     return err;
 }
 
+/* Name fuer die Playlist: Steuerzeichen -> Leerzeichen, Raender trimmen, hoechstens IRM_PLAYLIST_NAME_MAX Bytes, nie mitten in einem UTF-8-Zeichen abschneiden */
+static void clean_name(char *dst, size_t dsz, const char *src)
+{
+    size_t n = 0;
+    while (src[n] && n + 1 < dsz && n < IRM_PLAYLIST_NAME_MAX) n++;
+    if (src[n]) while (n > 0 && ((unsigned char)src[n] & 0xC0) == 0x80) n--;   /* abgeschnitten: Zeichengrenze suchen */
+    for (size_t i = 0; i < n; i++) dst[i] = ((unsigned char)src[i] < 0x20 || (unsigned char)src[i] == 0x7f) ? ' ' : src[i];
+    dst[n] = 0;
+    while (n && dst[n - 1] == ' ') dst[--n] = 0;
+    size_t lead = 0;
+    while (dst[lead] == ' ') lead++;
+    if (lead) memmove(dst, dst + lead, n - lead + 1);
+}
+
+esp_err_t irm_control_kiwi_favorite(const char *name)
+{
+    char clean[IRM_NAME_MAX_LEN];
+    clean_name(clean, sizeof(clean), name ? name : "");
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    strlcpy(c.pending_name, clean, sizeof(c.pending_name));
+    xSemaphoreGive(c.list_lock);
+    return irm_cmd_post_id(IRM_CMD_KIWI_FAVORITE, 0);
+}
+
+size_t irm_control_kiwi_favorites(void)
+{
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    const size_t n = irm_playlist_count(c.lists[IRM_SOURCE_KIWI]);
+    xSemaphoreGive(c.list_lock);
+    return n;
+}
+
 /* true, wenn die Quelle jetzt aktiv ist (oder es schon war) */
 static bool switch_source(irm_source_t src)
 {
@@ -391,7 +443,13 @@ static void kiwi_connect_dir(uint32_t db_idx)
 /* Aktuellen Kiwi-Eintrag samt eingestellter Frequenz/Modus als Favorit in /kiwi.m3u ablegen */
 static void kiwi_add_favorite(void)
 {
+    char fname[IRM_NAME_MAX_LEN];                /* vom Web-UI vorgegebener Name (einmalig verbraucht), sonst Name des laufenden Eintrags */
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    strlcpy(fname, c.pending_name, sizeof(fname));
+    c.pending_name[0] = 0;
+    xSemaphoreGive(c.list_lock);
     irm_status_t st; irm_status_get(&st);
+    if (!fname[0]) clean_name(fname, sizeof(fname), st.name);
     if (c.source != IRM_SOURCE_KIWI || st.index < 0 || !st.kiwi_freq_hz) { ESP_LOGW(TAG, "Favorit: kein KiwiSDR-Eintrag aktiv"); return; }
     if (!irm_board_sd_mounted()) { ESP_LOGW(TAG, "Favorit: keine SD-Karte"); return; }
     irm_kiwi_uri_t u;
@@ -406,15 +464,65 @@ static void kiwi_add_favorite(void)
     for (size_t i = 0; i < n; i++) if (!strcmp(irm_playlist_uri(c.lists[IRM_SOURCE_KIWI], i), uri)) dup = true;
     xSemaphoreGive(c.list_lock);
     if (dup) { ESP_LOGI(TAG, "Favorit: %s ist bereits gespeichert", uri); return; }
-    if (irm_files_append_playlist(IRM_SD_MOUNT_POINT "/kiwi.m3u", st.name, uri) != ESP_OK) { ESP_LOGW(TAG, "Favorit: kiwi.m3u nicht beschreibbar"); return; }
+    if (irm_files_append_playlist(IRM_SD_MOUNT_POINT "/kiwi.m3u", fname, uri) != ESP_OK) { ESP_LOGW(TAG, "Favorit: kiwi.m3u nicht beschreibbar"); return; }
     xSemaphoreTake(c.list_lock, portMAX_DELAY);
     const bool was_dyn = is_dyn(IRM_SOURCE_KIWI, (size_t)st.index);
-    const bool added = irm_playlist_add(c.lists[IRM_SOURCE_KIWI], uri, st.name);
+    const bool added = irm_playlist_add(c.lists[IRM_SOURCE_KIWI], uri, fname);
     if (added && was_dyn) c.dyn_valid = false;   /* der Direkteintrag ist jetzt ein Favorit, an derselben Indexposition */
     xSemaphoreGive(c.list_lock);
-    if (added) ESP_LOGI(TAG, "Favorit gespeichert: %s", uri);
+    if (added) ESP_LOGI(TAG, "Favorit gespeichert: \"%s\" = %s", fname, uri);
     else ESP_LOGW(TAG, "Favorit in kiwi.m3u, aber Liste im Speicher voll (nach Neustart verfuegbar): %s", uri);
-    if (added) publish_item();
+    if (added) publish_item_keep();              /* Name/Anzahl aktualisieren, Abstimmung und Format der laufenden Sitzung bleiben */
+}
+#endif
+
+#if CONFIG_IRM_KIWI_ENABLE
+/* Favorit idx (Index in der Kiwi-Liste) aus /kiwi.m3u und aus der Liste entfernen.
+ * Laeuft er gerade, bleibt die Sitzung bestehen: er spielt als Direkteintrag hinter den Favoriten weiter (mit der gerade eingestellten Frequenz/Modus). */
+static void kiwi_delete_favorite(int32_t idx)
+{
+    if (c.source != IRM_SOURCE_KIWI) { ESP_LOGW(TAG, "Loeschen: Quelle ist nicht KiwiSDR"); return; }
+    char uri[IRM_URI_MAX_LEN], name[IRM_NAME_MAX_LEN];
+    size_t nth = 0;                              /* wievielte Zeile mit dieser URI (bei doppelten Eintraegen in der Datei) */
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    const size_t n = irm_playlist_count(c.lists[IRM_SOURCE_KIWI]);
+    const bool valid = idx >= 0 && (size_t)idx < n;
+    if (valid) {
+        strlcpy(uri, irm_playlist_uri(c.lists[IRM_SOURCE_KIWI], (size_t)idx), sizeof(uri));
+        strlcpy(name, irm_playlist_name(c.lists[IRM_SOURCE_KIWI], (size_t)idx), sizeof(name));
+        for (size_t i = 0; i < (size_t)idx; i++) if (!strcmp(irm_playlist_uri(c.lists[IRM_SOURCE_KIWI], i), uri)) nth++;
+    }
+    xSemaphoreGive(c.list_lock);
+    if (!valid) { ESP_LOGW(TAG, "Loeschen: Index %d ist kein Favorit", (int)idx); return; }
+    if (!irm_board_sd_mounted()) { ESP_LOGW(TAG, "Loeschen: keine SD-Karte"); return; }
+    const esp_err_t fe = irm_files_remove_playlist_entry(IRM_SD_MOUNT_POINT "/kiwi.m3u", uri, nth);
+    if (fe == ESP_ERR_NOT_FOUND) ESP_LOGI(TAG, "Loeschen: %s steht nicht in kiwi.m3u (Vorgabeeintrag), nur aus der Liste entfernt", uri);
+    else if (fe != ESP_OK) { ESP_LOGW(TAG, "Loeschen: kiwi.m3u nicht beschreibbar (Fehler 0x%x), Liste unveraendert", (unsigned)fe); return; }
+
+    irm_status_t st; irm_status_get(&st);
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    irm_playlist_remove(c.lists[IRM_SOURCE_KIWI], (size_t)idx);
+    int32_t cur = c.index[IRM_SOURCE_KIWI];
+    if (cur == idx) {
+        char dyn[IRM_URI_MAX_LEN];
+        strlcpy(dyn, uri, sizeof(dyn));
+        irm_kiwi_uri_t u;
+        if (st.kiwi_freq_hz && irm_kiwi_uri_parse(uri, &u)) {
+            u.freq_hz = st.kiwi_freq_hz;
+            strlcpy(u.mode, st.kiwi_mode, sizeof(u.mode));
+            char b[IRM_URI_MAX_LEN];
+            if (irm_kiwi_uri_build(&u, b, sizeof(b))) strlcpy(dyn, b, sizeof(dyn));
+        }
+        strlcpy(c.dyn_uri, dyn, sizeof(c.dyn_uri));
+        strlcpy(c.dyn_name, name, sizeof(c.dyn_name));
+        c.dyn_valid = true;
+        cur = (int32_t)irm_playlist_count(c.lists[IRM_SOURCE_KIWI]);   /* Direkteintrag steht hinter den Favoriten */
+    } else if (cur > idx) cur--;
+    c.index[IRM_SOURCE_KIWI] = cur;
+    xSemaphoreGive(c.list_lock);
+    publish_item_keep();
+    schedule_persist(false, false, true);
+    ESP_LOGI(TAG, "Favorit geloescht: \"%s\" = %s", name, uri);
 }
 #endif
 
@@ -453,6 +561,7 @@ static void handle(const irm_cmd_t *m)
     case IRM_CMD_KIWI_TUNE: if (c.source == IRM_SOURCE_KIWI && m->value > 0) irm_kiwi_tune((uint32_t)m->value, NULL); break;
     case IRM_CMD_KIWI_STEP: if (c.source == IRM_SOURCE_KIWI) irm_kiwi_tune_step(m->value); break;
     case IRM_CMD_KIWI_MODE: if (c.source == IRM_SOURCE_KIWI) irm_kiwi_set_mode_index(m->value); break;
+    case IRM_CMD_KIWI_DELETE: kiwi_delete_favorite(m->value); break;
 #if CONFIG_IRM_DIR_ENABLE
     case IRM_CMD_KIWI_CONNECT:  if (m->value >= 0) kiwi_connect_dir((uint32_t)m->value); break;
     case IRM_CMD_KIWI_FAVORITE: kiwi_add_favorite(); break;
