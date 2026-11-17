@@ -104,58 +104,172 @@ Zustandsändernde Aufrufe sind ausschließlich `POST` mit JSON-Body (kein Seiten
 
 ## Tests
 
+Alle Tests laufen **auf dem Host** (gcc, AddressSanitizer), ohne ESP-IDF und ohne Hardware.
+### Formate und Dateien (`irm_formats`)
+
 ```bash
-cd components/irm_formats
-gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/*.c test/test_formats.c -o /tmp/tf && /tmp/tf
-cd ../irm_formats
-gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_mp4.c test/test_mp4.c -o /tmp/tm && /tmp/tm
-gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_dirlist.c src/irm_playlist.c test/test_dirlist.c -o /tmp/tdl && /tmp/tdl   # Dateibrowser: Pfade, Cursor-Listing, JSON
-cd ../irm_out
-gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_pcm.c test/test_pcm.c -o /tmp/tp && /tmp/tp
-# Resampler + Drift-Regler (Simulation 20 min Netz-Jitter, dauert ca. 1-2 min)
-gcc -std=c11 -Wall -Wextra -O2 -fsanitize=undefined -Iinclude src/irm_resamp.c test/test_resamp.c -lm -o /tmp/trs && /tmp/trs
-gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_resamp.c test/test_resamp_st.c -lm -o /tmp/trst && /tmp/trst   # Stereo-Resampler (Netzwerk-Eingang)
-cd ../irm_netin                # Zulassungsregeln (Subnetz, ein Absender)
-gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_netin_policy.c test/host/test_netin_policy.c -o /tmp/tnp && /tmp/tnp
-# echte Engine irm_netin.c mit UDP/TCP ueber Loopback (zweiter Absender = 127.0.0.2), ca. 25 s Echtzeit
-C=..; K=$C/irm_kiwi/test/host; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Itest/host/shim -I$K/shim -I$C/irm_core/include -I$C/irm_out/include -Iinclude \
-  src/irm_netin.c src/irm_netin_policy.c $C/irm_out/src/irm_resamp.c $K/shim_rtos.c test/host/test_netin_host.c -lpthread -lm -o /tmp/tnh && ASAN_OPTIONS=detect_leaks=0 /tmp/tnh
+( cd components/irm_formats
+
+  # Playlists, WLAN-Datei, EQ-Datei, MP4-Parser ...
+  gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude src/*.c test/test_formats.c -o /tmp/tf && /tmp/tf
+
+  # M4A/MP4-Container
+  gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude \
+      src/irm_mp4.c test/test_mp4.c -o /tmp/tm && /tmp/tm
+
+  # Dateibrowser: Pfade, Cursor-Listing, JSON
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude \
+      src/irm_dirlist.c src/irm_playlist.c test/test_dirlist.c -o /tmp/tdl && /tmp/tdl
+)
 ```
 
-KiwiSDR (alles auf dem Host, ohne ESP-IDF; `KC` = `components/kiwi_core`, `PC` = Pfad zu `mock_kiwi.py` aus dem Projekt ESP32_KiwiSDR):
+### Audio-Ausgabe (`irm_out`)
 
 ```bash
-cd components/irm_formats      # URI-Parser, Modus-Tabelle, Abgleich mit kiwi_core
-KC=../kiwi_core; gcc -std=c11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$KC/include \
-  src/irm_kiwi_uri.c src/irm_playlist.c test/test_kiwi_uri.c $KC/src/*.c -o /tmp/tku && /tmp/tku
-cd ../irm_rec/test/host        # echtes irm_rec.c (Abgriff, Schreib-Task, Dateiwechsel, Karte voll) gegen ein Verzeichnis als SD-Karte
-K=../../../irm_kiwi/test/host; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DIRM_SD_MOUNT_POINT='"/tmp/irm_rec_sd"' -Ishim -I$K/shim \
-  -I../../../irm_core/include -I../../../irm_out/include -I../../../irm_formats/include -I../../include ../../src/irm_rec.c ../../../irm_formats/src/irm_wav.c $K/shim_rtos.c test_rec_host.c -lpthread -o /tmp/trec && ASAN_OPTIONS=detect_leaks=0 /tmp/trec
-# WAV-Kopf/Dateinamen: cd ../../../irm_formats && gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_wav.c test/test_wav.c -o /tmp/tw && /tmp/tw
-cd ../../../irm_kiwi/test/host       # echtes irm_kiwi.c (POSIX-Shim statt FreeRTOS) gegen Mock-KiwiSDR, ca. 40 s Echtzeit
-C=../../..; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Ishim \
-  -I$C/irm_core/include -I$C/irm_out/include -I$C/irm_formats/include -I$C/kiwi_core/include -I$C/irm_kiwi/include \
-  $C/irm_kiwi/src/irm_kiwi.c $C/irm_out/src/irm_resamp.c $C/irm_formats/src/irm_kiwi_uri.c $C/kiwi_core/src/*.c shim_rtos.c test_irm_kiwi_host.c \
-  -lm -lpthread -o /tmp/tikh && ASAN_OPTIONS=detect_leaks=0 python3 e2e_irm_kiwi.py $PC /tmp/tikh
-cd ../../../irm_dir            # Verzeichnis-Suche/Paging/Sortierung/URI-Bau auf echter Datenbank (aus test/kiwisdr_sample.js)
-D=../kiwi_dir; KC=../kiwi_core; SRC="$(ls $D/src/*.c | grep -v kiwi_dir_cmd.c) $KC/src/*.c"
-gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$D/include -I$KC/include -I../irm_formats/include \
-  src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC test/test_irm_dir_query.c -o /tmp/tdq && ASAN_OPTIONS=detect_leaks=0 /tmp/tdq
-# echtes irm_dir.c (Update-Task, Mindestabstand, Fehler -> alte Liste bleibt) gegen lokalen HTTP-Server (Port 18973)
-I=../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Itest/host/shim -I$I -Iinclude \
-  -I$D/include -I$KC/include -I../irm_formats/include src/irm_dir.c src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC ../irm_kiwi/test/host/shim_rtos.c \
-  test/host/test_irm_dir_host.c -lpthread -lm -o /tmp/tidh && ASAN_OPTIONS=detect_leaks=0 python3 test/host/e2e_irm_dir.py test/kiwisdr_sample.js /tmp/tidh
-cd ../irm_web                  # Query-Parser/UTF-8/JSON mit echtem cJSON ($CJ = Verzeichnis mit cJSON.c/.h, z. B. aus github.com/DaveGamble/cJSON v1.7.x)
-gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$CJ -I../irm_dir/include -I$D/include -I$KC/include \
-  -I../irm_formats/include src/irm_web_dir.c ../irm_dir/src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC $CJ/cJSON.c test/test_irm_web_dir.c -lm -o /tmp/twd \
+( cd components/irm_out
+
+  # PCM-Umsetzung (Bittiefe, Kanäle, Lautstärke)
+  gcc -Wall -Wextra -fsanitize=address,undefined -Iinclude \
+      src/irm_pcm.c test/test_pcm.c -o /tmp/tp && /tmp/tp
+
+  # Stereo-Resampler (Netzwerk-Eingang)
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude \
+      src/irm_resamp.c test/test_resamp_st.c -lm -o /tmp/trst && /tmp/trst
+
+  # Resampler + Drift-Regler: Simulation von 20 Minuten Netz-Jitter, dauert ca. 1-2 min
+  gcc -std=c11 -Wall -Wextra -O2 -fsanitize=undefined -Iinclude \
+      src/irm_resamp.c test/test_resamp.c -lm -o /tmp/trs && /tmp/trs
+)
+```
+
+### Aufnahme (`irm_rec`)
+
+```bash
+( cd components
+
+  # WAV-Kopf und Dateinamen der Aufnahmen
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iirm_formats/include \
+      irm_formats/src/irm_wav.c irm_formats/test/test_wav.c -o /tmp/tw && /tmp/tw
+
+  # Echtes irm_rec.c gegen ein Verzeichnis als "SD-Karte": Abgriff Radio/Kiwi, Dateiinhalt bit-genau,
+  # Dateiwechsel, Puffer-Überlauf, Start/Stopp unter Dauerlast, Karte voll
+  K=irm_kiwi/test/host
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L \
+      -DIRM_SD_MOUNT_POINT='"/tmp/irm_rec_sd"' \
+      -Iirm_rec/test/host/shim -I$K/shim -Iirm_core/include -Iirm_out/include -Iirm_formats/include -Iirm_rec/include \
+      irm_rec/src/irm_rec.c irm_formats/src/irm_wav.c $K/shim_rtos.c irm_rec/test/host/test_rec_host.c \
+      -lpthread -o /tmp/trec && ASAN_OPTIONS=detect_leaks=0 /tmp/trec
+)
+```
+
+### Netzwerk-Eingang (`irm_netin`)
+
+```bash
+( cd components/irm_netin
+
+  # Zulassungsregeln (Subnetz, ein Absender)
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude \
+      src/irm_netin_policy.c test/host/test_netin_policy.c -o /tmp/tnp && /tmp/tnp
+
+  # Echte Engine irm_netin.c mit UDP/TCP über Loopback (zweiter Absender = 127.0.0.2), ca. 25 s Echtzeit
+  C=..; K=$C/irm_kiwi/test/host
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined \
+      -Itest/host/shim -I$K/shim -I$C/irm_core/include -I$C/irm_out/include -Iinclude \
+      src/irm_netin.c src/irm_netin_policy.c $C/irm_out/src/irm_resamp.c $K/shim_rtos.c test/host/test_netin_host.c \
+      -lpthread -lm -o /tmp/tnh && ASAN_OPTIONS=detect_leaks=0 /tmp/tnh
+)
+```
+
+### Steuerung (`irm_control`)
+
+```bash
+# Echtes irm_control.c: vier Quellen, Engine-Exklusivität, Aufnahme-Bandlogik, Retry, Nachzügler-Events
+( cd components/irm_control/test/host
+  C=../../..; I=$C/irm_kiwi/test/host/shim
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -DIRM_SD_MOUNT_POINT='"/tmp/irm_sd_test"' \
+      -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include -I$C/irm_audio/include -I$C/irm_control/include \
+      -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_netin/include \
+      -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include -I$C/irm_rec/include \
+      $C/irm_control/src/irm_control.c $C/irm_dir/src/irm_dir_query.c \
+      $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_dirlist.c $C/irm_formats/src/irm_kiwi_uri.c \
+      $(ls $C/kiwi_dir/src/*.c | grep -v kiwi_dir_cmd.c) $C/kiwi_core/src/*.c \
+      $I/../shim_rtos.c test_control_host.c -lpthread -lm -o /tmp/tch && ASAN_OPTIONS=detect_leaks=0 /tmp/tch
+)
+```
+
+### KiwiSDR (`irm_kiwi`, `irm_dir`, `irm_web`)
+
+Hilfsvariablen: `KC` = `components/kiwi_core`, `PC` = Pfad zu `mock_kiwi.py` aus dem Projekt ESP32_KiwiSDR, `CJ` = Verzeichnis mit `cJSON.c`/`cJSON.h`
+(z. B. aus github.com/DaveGamble/cJSON, v1.7.x). `PC` und `CJ` brauchen nur die beiden gekennzeichneten Tests.
+
+```bash
+# URI-Parser, Modus-Tabelle, Abgleich mit kiwi_core
+( cd components/irm_formats
+  KC=../kiwi_core
+  gcc -std=c11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
+      -Iinclude -I$KC/include \
+      src/irm_kiwi_uri.c src/irm_playlist.c test/test_kiwi_uri.c $KC/src/*.c -o /tmp/tku && /tmp/tku
+)
+```
+
+```bash
+# Echtes irm_kiwi.c (POSIX-Shim statt FreeRTOS) gegen Mock-KiwiSDR, ca. 40 s Echtzeit  [braucht $PC]
+( cd components/irm_kiwi/test/host
+  C=../../..
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Ishim \
+      -I$C/irm_core/include -I$C/irm_out/include -I$C/irm_formats/include -I$C/kiwi_core/include -I$C/irm_kiwi/include \
+      $C/irm_kiwi/src/irm_kiwi.c $C/irm_out/src/irm_resamp.c $C/irm_formats/src/irm_kiwi_uri.c $C/kiwi_core/src/*.c \
+      shim_rtos.c test_irm_kiwi_host.c -lm -lpthread -o /tmp/tikh \
+  && ASAN_OPTIONS=detect_leaks=0 python3 e2e_irm_kiwi.py $PC /tmp/tikh
+)
+```
+
+```bash
+# Server-Verzeichnis: Suche, Paging, Sortierung, URI-Bau auf echter Datenbank (aus test/kiwisdr_sample.js)
+( cd components/irm_dir
+  D=../kiwi_dir; KC=../kiwi_core; SRC="$(ls $D/src/*.c | grep -v kiwi_dir_cmd.c) $KC/src/*.c"
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
+      -Iinclude -I$D/include -I$KC/include -I../irm_formats/include \
+      src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC test/test_irm_dir_query.c -o /tmp/tdq \
+  && ASAN_OPTIONS=detect_leaks=0 /tmp/tdq
+
+  # Echtes irm_dir.c (Update-Task, Mindestabstand, Fehler -> alte Liste bleibt) gegen lokalen HTTP-Server (Port 18973)
+  I=../irm_kiwi/test/host/shim
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
+      -Itest/host/shim -I$I -Iinclude -I$D/include -I$KC/include -I../irm_formats/include \
+      src/irm_dir.c src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC ../irm_kiwi/test/host/shim_rtos.c \
+      test/host/test_irm_dir_host.c -lpthread -lm -o /tmp/tidh \
+  && ASAN_OPTIONS=detect_leaks=0 python3 test/host/e2e_irm_dir.py test/kiwisdr_sample.js /tmp/tidh
+)
+```
+
+```bash
+# Web-Schnittstelle: Query-Parser, UTF-8, JSON mit echtem cJSON  [braucht $CJ]
+( cd components/irm_web
+  D=../kiwi_dir; KC=../kiwi_core; SRC="$(ls $D/src/*.c | grep -v kiwi_dir_cmd.c) $KC/src/*.c"
+  gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE \
+      -Iinclude -I$CJ -I../irm_dir/include -I$D/include -I$KC/include -I../irm_formats/include \
+      src/irm_web_dir.c ../irm_dir/src/irm_dir_query.c ../irm_formats/src/irm_kiwi_uri.c $SRC $CJ/cJSON.c \
+      test/test_irm_web_dir.c -lm -o /tmp/twd \
   && ASAN_OPTIONS=detect_leaks=0 /tmp/twd ../irm_dir/test/kiwisdr_sample.js
-(cd test/ui && npm install jsdom && node test_ui.js && node test_ui_files.js)   # Oberflaeche in jsdom gegen simulierte REST-API (u. a. XSS mit boesartigen Servernamen; test_ui_files.js = Dateibrowser)
-# alternativ der Dateibrowser-Test in echtem Chromium: (cd test/ui && node test_ui_files_pw.js)   # benoetigt playwright
-cd ../irm_control/test/host   # echtes irm_control.c: vier Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
-I=../../../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -DIRM_SD_MOUNT_POINT='"/tmp/irm_sd_test"' -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include \
-  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_netin/include -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include -I$C/irm_rec/include \
-  $C/irm_control/src/irm_control.c $C/irm_dir/src/irm_dir_query.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_dirlist.c $C/irm_formats/src/irm_kiwi_uri.c $(ls $C/kiwi_dir/src/*.c | grep -v kiwi_dir_cmd.c) $C/kiwi_core/src/*.c $I/../shim_rtos.c test_control_host.c \
-  -lpthread -lm -o /tmp/tch && ASAN_OPTIONS=detect_leaks=0 /tmp/tch
+)
+```
+
+### Web-Oberfläche (jsdom)
+
+Läuft in jsdom gegen eine simulierte REST-API (u. a. XSS mit bösartigen Servernamen, Aufnahme-Taste; `test_ui_files.js` = Dateibrowser).
+jsdom wird nach `/tmp/jsdom` installiert, damit im Projektverzeichnis kein `node_modules` entsteht:
+
+```bash
+npm install --prefix /tmp/jsdom jsdom
+
+( cd components/irm_web/test/ui
+  NODE_PATH=/tmp/jsdom/node_modules node test_ui.js
+  NODE_PATH=/tmp/jsdom/node_modules node test_ui_files.js
+)
+
+# Alternativ: der Dateibrowser-Test in echtem Chromium (braucht playwright)
+# ( cd components/irm_web/test/ui && node test_ui_files_pw.js )
 ```
 
 ## Status
