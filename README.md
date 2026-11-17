@@ -44,6 +44,7 @@ Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setze
 | `kiwi_core` | portabler KiwiSDR-Client (WebSocket, PCM/ADPCM), unverändert aus ESP32_KiwiSDR | lwip |
 | `irm_dir` | **Serververzeichnis**: Suche/Blättern (reines C) + Flash-Datenbank, Update-Task ([Doku](docs/KIWI.md#serververzeichnis-suchen-und-auswählen-im-web-ui)) | kiwi_dir, esp_partition |
 | `kiwi_dir` | portabler Verzeichnisdienst-Client (Parser, DB, HTTP), aus ESP32_KiwiSDR; `kiwi_dir_cmd.c` (Konsole) ist nicht Teil des Builds | kiwi_core |
+| `irm_rec` | **Aufnahme** (Radio, KiwiSDR → unkomprimiertes WAV auf SD, Dateiname = Datum/Uhrzeit) ([Doku](docs/RECORDING.md)) | irm_core, irm_out |
 | `irm_control` | Zustandsautomat (einzige Task, die Audio steuert) | irm_audio, irm_kiwi, irm_storage |
 | `irm_input` | Taster (entprellt, kurz/lang) und PCNT-Drehgeber | irm_core |
 | `irm_display` + `irm_disp_*` | Anzeige-Dienst + Backends SSD1306 (u8g2), HD44780/PCF8574, Servo, **LVGL** (4 Skins) | irm_core |
@@ -127,7 +128,11 @@ KiwiSDR (alles auf dem Host, ohne ESP-IDF; `KC` = `components/kiwi_core`, `PC` =
 cd components/irm_formats      # URI-Parser, Modus-Tabelle, Abgleich mit kiwi_core
 KC=../kiwi_core; gcc -std=c11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Iinclude -I$KC/include \
   src/irm_kiwi_uri.c src/irm_playlist.c test/test_kiwi_uri.c $KC/src/*.c -o /tmp/tku && /tmp/tku
-cd ../irm_kiwi/test/host       # echtes irm_kiwi.c (POSIX-Shim statt FreeRTOS) gegen Mock-KiwiSDR, ca. 40 s Echtzeit
+cd ../irm_rec/test/host        # echtes irm_rec.c (Abgriff, Schreib-Task, Dateiwechsel, Karte voll) gegen ein Verzeichnis als SD-Karte
+K=../../../irm_kiwi/test/host; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DIRM_SD_MOUNT_POINT='"/tmp/irm_rec_sd"' -Ishim -I$K/shim \
+  -I../../../irm_core/include -I../../../irm_out/include -I../../../irm_formats/include -I../../include ../../src/irm_rec.c ../../../irm_formats/src/irm_wav.c $K/shim_rtos.c test_rec_host.c -lpthread -o /tmp/trec && ASAN_OPTIONS=detect_leaks=0 /tmp/trec
+# WAV-Kopf/Dateinamen: cd ../../../irm_formats && gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -Iinclude src/irm_wav.c test/test_wav.c -o /tmp/tw && /tmp/tw
+cd ../../../irm_kiwi/test/host       # echtes irm_kiwi.c (POSIX-Shim statt FreeRTOS) gegen Mock-KiwiSDR, ca. 40 s Echtzeit
 C=../../..; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE -Ishim \
   -I$C/irm_core/include -I$C/irm_out/include -I$C/irm_formats/include -I$C/kiwi_core/include -I$C/irm_kiwi/include \
   $C/irm_kiwi/src/irm_kiwi.c $C/irm_out/src/irm_resamp.c $C/irm_formats/src/irm_kiwi_uri.c $C/kiwi_core/src/*.c shim_rtos.c test_irm_kiwi_host.c \
@@ -148,7 +153,7 @@ gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -D_POSIX_C_SOURCE=2008
 # alternativ der Dateibrowser-Test in echtem Chromium: (cd test/ui && node test_ui_files_pw.js)   # benoetigt playwright
 cd ../irm_control/test/host   # echtes irm_control.c: vier Quellen, Engine-Exklusivitaet, Retry, Nachzuegler-Events
 I=../../../irm_kiwi/test/host/shim; gcc -std=gnu11 -Wall -Wextra -fsanitize=address,undefined -DIRM_SD_MOUNT_POINT='"/tmp/irm_sd_test"' -Ishim -I$I -I$C/irm_core/include -I$C/irm_out/include \
-  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_netin/include -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include \
+  -I$C/irm_audio/include -I$C/irm_control/include -I$C/irm_formats/include -I$C/irm_storage/include -I$C/irm_kiwi/include -I$C/irm_netin/include -I$C/irm_dir/include -I$C/kiwi_dir/include -I$C/kiwi_core/include -I$C/irm_rec/include \
   $C/irm_control/src/irm_control.c $C/irm_dir/src/irm_dir_query.c $C/irm_formats/src/irm_playlist.c $C/irm_formats/src/irm_dirlist.c $C/irm_formats/src/irm_kiwi_uri.c $(ls $C/kiwi_dir/src/*.c | grep -v kiwi_dir_cmd.c) $C/kiwi_core/src/*.c $I/../shim_rtos.c test_control_host.c \
   -lpthread -lm -o /tmp/tch && ASAN_OPTIONS=detect_leaks=0 /tmp/tch
 ```

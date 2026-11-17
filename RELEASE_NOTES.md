@@ -1,3 +1,21 @@
+# iRadioMini2 – Aufnahme: Feinschliff nach Hardwaretest (2026-11-17)
+
+* **Vorgaben:** `IRM_REC_BUFFER_KB` 64 (vorher 192: hörbares Stottern im Radiobetrieb), `IRM_REC_SYNC_S` 20 (vorher 5).
+* **KiwiSDR-Absturz beim Aufnahmestopp:** Ring-Puffer jetzt mit statischem Kontrollblock (`xStreamBufferCreateStatic`) statt `...WithCaps`; in den Läufen danach kein Absturz mehr (Ursache nicht geklärt).
+* **Diagnose:** Schalter `IRM_REC_DEBUG_NOWRITE`, `IRM_REC_BUFFER_INTERNAL`, `IRM_REC_HEAP_CHECK`; Stack des Schreib-Tasks einstellbar, Reserve wird beim Aufnahmeende geloggt. Befunde in `docs/RECORDING.md`.
+
+---
+
+# iRadioMini2 – Aufnahme (2026-11-17)
+
+* **Aufnahme für Radio und KiwiSDR** wie beim Kassettenrecorder: Taster (`IRM_BTN_REC`), Web-UI-Taste oder `POST /api/cmd {"cmd":"rec_toggle"}`. Unkomprimiertes WAV (16 Bit) nach `/sdcard/recordings/JJJJ-MM-TT_HH-MM-SS.wav`, Details und Grenzen in `docs/RECORDING.md`.
+* **Neue Komponente `irm_rec`:** hängt sich in die Ausgabesenke (Radio: Stereo, Ausgaberate) bzw. per `irm_kiwi_set_tap` in den Kiwi-Ausgabetask (12 kHz Mono, roh) ein; Ringpuffer + Schreib-Task, der Audio-Pfad blockiert nie. Datei entsteht beim ersten Ton, WAV-Kopf wird alle `IRM_REC_SYNC_S` s gesichert, Dateiwechsel bei `IRM_REC_MAX_FILE_MB`, Stopp bei fast voller Karte. Optionale Aufnahme-LED.
+* **Uhr:** `irm_net` startet jetzt SNTP und setzt die Zeitzone (`IRM_TIMEZONE`, `IRM_SNTP_SERVER`). Ohne Uhr heißen Aufnahmen `rec_0001.wav` …
+* **Steuerung:** `IRM_CMD_REC_START/STOP/TOGGLE`, Status `rec`/`rec_secs`. REC bei stehendem Band startet auch die Wiedergabe; Pause/Stopp und Quellenwechsel beenden die Aufnahme, Senderwechsel nicht.
+* **Tests:** echtes `irm_rec.c` auf dem Host (bit-genauer Inhalt, Header, Dateiwechsel, Karte voll), `irm_control` (Bandlogik), WAV-Helfer, Web-UI. – siehe `docs/RECORDING.md`.
+
+---
+
 # iRadioMini2 – Netzwerk-Eingang (2026-11-15)
 
 Neu gegenüber dem Dateibrowser-Release:
