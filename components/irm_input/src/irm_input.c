@@ -24,6 +24,7 @@ static button_t s_btn[] = {
     { .gpio = CONFIG_IRM_BTN_PLAY,     .short_cmd = IRM_CMD_TOGGLE_PAUSE, .long_cmd = IRM_CMD_TOGGLE_SOURCE },
     { .gpio = CONFIG_IRM_BTN_NEXT,     .short_cmd = IRM_CMD_NEXT },
     { .gpio = CONFIG_IRM_BTN_PREV,     .short_cmd = IRM_CMD_PREV },
+    { .gpio = CONFIG_IRM_BTN_REC,      .short_cmd = IRM_CMD_REC_TOGGLE },
     { .gpio = CONFIG_IRM_BTN_VOL_UP,   .short_cmd = IRM_CMD_VOLUME_UP,   .repeat = true },
     { .gpio = CONFIG_IRM_BTN_VOL_DOWN, .short_cmd = IRM_CMD_VOLUME_DOWN, .repeat = true },
 };

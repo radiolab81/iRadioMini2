@@ -1,7 +1,11 @@
 #include <string.h>
 #include "esp_event.h"
 #include "esp_log.h"
+#include <stdlib.h>
+#include <time.h>
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
+#include "esp_sntp.h"
 #include "esp_wifi.h"
 #include "esp_timer.h"
 #include "irm_core.h"
@@ -13,6 +17,13 @@ static esp_timer_handle_t s_retry_timer;
 static int s_backoff_s = 1;
 
 static void m_up(irm_status_t *s, void *c) { const char *ip = c; s->net_up = ip != NULL; snprintf(s->ip, sizeof(s->ip), "%s", ip ? ip : ""); }
+
+static void time_synced(struct timeval *tv)
+{
+    (void)tv;
+    time_t t = time(NULL); struct tm tm; localtime_r(&t, &tm);
+    ESP_LOGI(TAG, "Uhr gestellt: %04d-%02d-%02d %02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+}
 
 static void retry_cb(void *arg) { (void)arg; esp_wifi_connect(); }
 
@@ -47,6 +58,13 @@ esp_err_t irm_net_start(const char *ssid, const char *psk)
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    setenv("TZ", CONFIG_IRM_TIMEZONE, 1);
+    tzset();
+    esp_sntp_config_t sc = ESP_NETIF_SNTP_DEFAULT_CONFIG(CONFIG_IRM_SNTP_SERVER);
+    sc.sync_cb = time_synced;
+    sc.renew_servers_after_new_IP = true;       /* sonst wartet der erste Versuch (DNS ohne IP schlaegt fehl) bis zum Wiederholintervall */
+    sc.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
+    if (esp_netif_sntp_init(&sc) != ESP_OK) ESP_LOGW(TAG, "SNTP nicht gestartet: Uhr bleibt ungestellt");
     s_netif = esp_netif_create_default_wifi_sta();
     esp_netif_set_hostname(s_netif, CONFIG_IRM_WIFI_HOSTNAME);
 

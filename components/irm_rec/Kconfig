@@ -1,0 +1,110 @@
+menu "iRadioMini2: Aufnahme"
+
+    config IRM_REC_ENABLE
+        bool "Aufnahmefunktion (Radio und KiwiSDR -> WAV auf SD-Karte)"
+        default y
+        help
+            Zeichnet das laufende Radioprogramm bzw. den KiwiSDR-Empfang unkomprimiert als WAV auf (Ordner siehe unten).
+            Die Quellen Dateien und Netzwerk lassen sich nicht aufnehmen. Kostet ca. 6 KB Flash; der Aufnahmepuffer wird nur waehrend einer
+            Aufnahme belegt. Docs: docs/RECORDING.md
+
+    config IRM_REC_DIR
+        string "Ordner auf der SD-Karte (ohne Schraegstrich)"
+        depends on IRM_REC_ENABLE
+        default "recordings"
+
+    config IRM_REC_BUFFER_KB
+        int "Aufnahmepuffer (KiB, bevorzugt PSRAM)"
+        depends on IRM_REC_ENABLE
+        range 32 1024
+        default 64
+        help
+            Faengt Schreibpausen der SD-Karte ab (FAT-Verwaltung, Kartenintern). Radio: 48 kHz Stereo = 192 KB/s, 64 KiB sind also ca. 0,33 s;
+            KiwiSDR: 24 KB/s (12 kHz Mono), 64 KiB reichen ca. 2,7 s. Laeuft er voll, werden ganze Bloecke verworfen und im Log/Web-UI gezaehlt
+            (am Testgeraet selten: ein Mal ca. 80 ms in ueber 5 Minuten Radio; dann IRM_REC_SYNC_S erhoehen oder diesen Wert).
+            Mit 192 KiB im PSRAM trat am Testgeraet hoerbares Stottern im Radiobetrieb auf, mit 64 KiB nicht (Ursache nicht geklaert).
+            Ohne PSRAM wird der interne RAM benutzt: dort ist wenig frei, 64 nicht ueberschreiten.
+
+    config IRM_REC_MAX_FILE_MB
+        int "Dateigroesse, ab der eine neue Datei begonnen wird (MiB)"
+        depends on IRM_REC_ENABLE
+        range 16 4000
+        default 1024
+        help
+            WAV kann maximal 4 GiB, FAT32 ebenfalls. Bei 48 kHz Stereo entsprechen 1024 MiB ca. 90 Minuten. Der Wechsel erfolgt ohne Luecke
+            (der Puffer fuellt sich waehrenddessen); die neue Datei traegt wieder den aktuellen Zeitstempel.
+
+    config IRM_REC_MIN_FREE_MB
+        int "Aufnahme stoppt, wenn weniger als ... MiB frei sind"
+        depends on IRM_REC_ENABLE
+        range 1 1024
+        default 16
+
+    config IRM_REC_SYNC_S
+        int "WAV-Kopf und FAT alle n Sekunden auf die Karte schreiben"
+        depends on IRM_REC_ENABLE
+        range 1 60
+        default 20
+        help
+            Danach ist die Datei auch nach Stromausfall oder Kartenentnahme bis auf die letzten n Sekunden abspielbar. Der Vorgang (WAV-Kopf neu, fsync)
+            kann die Karte kurz blockieren; kleine Werte erhoehen das Risiko, dass der Aufnahmepuffer ueberlaeuft.
+
+    config IRM_REC_TASK_PRIO
+        int "Prioritaet des Schreib-Tasks"
+        depends on IRM_REC_ENABLE
+        range 1 9
+        default 6
+        help
+            Unter der Audio-Pipeline (10), ueber dem HTTP-Server (5).
+
+    config IRM_REC_TASK_STACK
+        int "Stack des Schreib-Tasks (Byte)"
+        depends on IRM_REC_ENABLE
+        range 4096 16384
+        default 8192
+        help
+            FAT + SD-Treiber + printf (Log mit %llu) brauchen auf dem Stack deutlich mehr als man denkt. Bei der Aufnahme wird am Ende
+            die kleinste freie Reserve geloggt; unter ca. 1500 Byte erhoehen.
+
+    config IRM_REC_TASK_CORE
+        int "Core des Schreib-Tasks (-1 = beliebig)"
+        depends on IRM_REC_ENABLE
+        range -1 1
+        default 0
+        help
+            Standard Core 0: Audio-Pipeline und KiwiSDR-Ausgabe laufen auf Core 1.
+
+    config IRM_REC_LED_GPIO
+        int "GPIO einer Aufnahme-LED (-1 = keine, aktiv high, Vorwiderstand extern)"
+        depends on IRM_REC_ENABLE
+        range -1 39
+        default -1
+        help
+            Leuchtet, solange aufgenommen wird; blinkt, solange die Aufnahme bereit ist, aber noch kein Ton fliesst.
+
+    config IRM_REC_DEBUG_NOWRITE
+        bool "DEBUG: Daten aus dem Puffer lesen und verwerfen (keine Datei, keine SD-Zugriffe)"
+        depends on IRM_REC_ENABLE
+        default n
+        help
+            Isoliert Fehlersuche: bleibt eine Stoerung im Radio-Ton mit dieser Option erhalten, liegt sie am Abgriff/Puffer (PSRAM, Schloss),
+            verschwindet sie, liegt sie am SD-Schreiben (Karte, FAT, Task-Konkurrenz). Nur zum Testen.
+
+    config IRM_REC_BUFFER_INTERNAL
+        bool "DEBUG: Aufnahmepuffer im internen RAM statt PSRAM"
+        depends on IRM_REC_ENABLE
+        default n
+        help
+            Testet, ob der Speicherort des Puffers (PSRAM/intern) Stoerungen beeinflusst. Mit IRM_REC_BUFFER_KB 48..64 verwenden (internes RAM ist
+            knapp; 192 KiB scheitern). Am Testgeraet war das Stottern mit 64 KiB im PSRAM ebenfalls weg. Nur zum Testen.
+
+    config IRM_REC_HEAP_CHECK
+        bool "DEBUG: Heap vor/nach dem Freigeben des Aufnahmepuffers pruefen"
+        depends on IRM_REC_ENABLE
+        default n
+        help
+            Ruft heap_caps_check_integrity_all(true) vor dem Start, vor und nach dem Freigeben auf und loggt das Ergebnis; bei Schaden druckt die IDF den
+            beschaedigten Block. Sinnvoll zusammen mit CONFIG_HEAP_POISONING_COMPREHENSIVE=y (Component config -> Heap memory debugging).
+            Kostet je Aufruf einige 10 ms. Nur zum Testen.
+
+endmenu

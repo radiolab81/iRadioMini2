@@ -12,6 +12,10 @@ menu "iRadioMini2: Eingabe"
         int "Taster Vorheriger"
         default 5
         range -1 39
+    config IRM_BTN_REC
+        int "Taster Aufnahme (Radio/KiwiSDR -> SD-Karte, Taster = Start/Stopp)"
+        default -1
+        range -1 39
     config IRM_BTN_VOL_UP
         int "Taster Lauter (haltbar = Wiederholung)"
         default -1

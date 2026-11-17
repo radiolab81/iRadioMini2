@@ -35,6 +35,11 @@ typedef void (*irm_kiwi_cb_t)(const irm_kiwi_evt_t *evt, void *ctx);
 
 esp_err_t irm_kiwi_init(irm_out_sink_t *sink, irm_kiwi_cb_t cb, void *ctx);
 
+/** Abgriff der rohen 12-kHz-Mono-Samples (nach dem Jitterpuffer, vor Resampler und Verstaerkung), z. B. fuer die Aufnahme. Wird im Ausgabe-Task
+ *  gerufen: nie blockieren. NULL = aus. */
+typedef void (*irm_kiwi_tap_t)(const int16_t *mono, size_t n, uint32_t rate_hz);
+void irm_kiwi_set_tap(irm_kiwi_tap_t fn);
+
 /** Eintrag abspielen (URI-Formate: irm_kiwi_uri.h). Kehrt sofort zurueck; ESP_ERR_INVALID_ARG bei ungueltiger URI.
  *  reset_tune = true: Frequenz/Modus aus der URI; false und gleiche URI wie zuvor: zuletzt eingestellte Abstimmung behalten (Pause/Fortsetzen, Wiederverbinden). */
 esp_err_t irm_kiwi_play(const char *uri, bool reset_tune);

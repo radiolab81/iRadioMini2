@@ -12,4 +12,13 @@ menu "iRadioMini2: Netzwerk"
         int "Maximales Reconnect-Intervall (s)"
         default 30
         range 2 300
+    config IRM_SNTP_SERVER
+        string "NTP-Server (Systemzeit fuer Dateinamen der Aufnahmen)"
+        default "pool.ntp.org"
+    config IRM_TIMEZONE
+        string "Zeitzone (POSIX-TZ-Format)"
+        default "CET-1CEST,M3.5.0,M10.5.0/3"
+        help
+            Mitteleuropa mit Sommerzeit. Beispiele: "GMT0BST,M3.5.0/1,M10.5.0", "EST5EDT,M3.2.0,M11.1.0", "UTC0". Ohne WLAN/NTP bleibt die Uhr ungestellt
+            (Aufnahmen heissen dann rec_0001.wav ...).
 endmenu

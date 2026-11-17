@@ -36,6 +36,7 @@ static struct {
     SemaphoreHandle_t  lock;
     EventGroupHandle_t ev;
     audio_sink_t       ksink;
+    volatile irm_kiwi_tap_t tap;
     uint32_t           gain_q15;
 
     /* Auftrag und Abstimmung (unter lock; gen/want werden vom Netz-Task auch lock-frei gelesen) */
@@ -122,6 +123,7 @@ static void out_task(void *arg)
             prebuf = true;
             continue;
         }
+        { const irm_kiwi_tap_t tap = s.tap; if (tap) tap(in, ns, s.src_rate); }
         const int32_t fill_ms = (int32_t)(((uint64_t)fill * 1000u) / ((uint64_t)s.src_rate * sizeof(int16_t)));
         const int32_t avg = irm_resamp_avg_update(&avg_q8, fill_ms);
         const int32_t ppm = irm_resamp_trim_ppm(avg - target_ms);
@@ -323,6 +325,8 @@ esp_err_t irm_kiwi_init(irm_out_sink_t *sink, irm_kiwi_cb_t cb, void *ctx)
     s.inited = true;
     return ESP_OK;
 }
+
+void irm_kiwi_set_tap(irm_kiwi_tap_t fn) { s.tap = fn; }
 
 esp_err_t irm_kiwi_play(const char *uri, bool reset_tune)
 {
