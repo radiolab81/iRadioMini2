@@ -11,7 +11,7 @@ const items = [
   { i: 0, name: EVIL, place: '<b>Ort</b>', country: 'Germany', host: 'evil.example', port: 8073, users: 1, max: 4, snr: 33, lo: 0, hi: 30000000 },
   { i: 1, name: 'Zweiter Server', place: 'Boulder, CO', country: 'USA', host: 'srv2.example', port: 8074, users: 0, max: 0, snr: 0, lo: 0, hi: 0 },
 ];
-const srv = { posts: [], gets: [], dirstate: 'idle', valid: true, status429: false, listTotal: 45, kiwi: null, source: 'radio', failList: false, name: 'Test', list: null };
+const srv = { posts: [], gets: [], dirstate: 'idle', valid: true, status429: false, listTotal: 45, kiwi: null, source: 'radio', failList: false, name: 'Test', list: null, rec: undefined };
 
 function fakeFetch(url, opt) {
   const u = new URL(url, 'http://x/'); const p = u.pathname;
@@ -26,7 +26,7 @@ function fakeFetch(url, opt) {
     return json({ ok: true });
   }
   srv.gets.push(u.pathname + u.search);
-  if (p === '/api/status') return json({ net: true, player: 'playing', name: srv.name, source: srv.source, volume: 30, index: 0, count: (srv.list || ['A', 'B', 'C']).length, eq: [0,0,0,0,0,0,0,0,0,0], kiwi: srv.kiwi, sample_rate: 12000, bitrate: 192000 });
+  if (p === '/api/status') return json({ net: true, player: 'playing', name: srv.name, source: srv.source, volume: 30, index: 0, count: (srv.list || ['A', 'B', 'C']).length, eq: [0,0,0,0,0,0,0,0,0,0], kiwi: srv.kiwi, rec: srv.rec, sample_rate: 12000, bitrate: 192000 });
   if (p === '/api/list') return json(srv.list || ['A', 'B', 'C']);
   if (p === '/api/dir') return json({ available: true, valid: srv.valid, count: 842, generation: 3, state: srv.dirstate, bytes: 51200, servers: 120, err: 0, msg: '', retry_in_s: 0 });
   if (p === '/api/dir/countries') return json([{ id: 5, name: 'Germany', n: 23 }, { id: 9, name: 'USA', n: 150 }]);
@@ -161,6 +161,22 @@ function fakeFetch(url, opt) {
   srv.posts.length = 0; confirms.length = 0; srv.status429 = false; srv.dirstate = 'idle'; confirmAnswer = false;
   $('dupd').click(); await sleep(100);
   check(srv.posts.length === 0, 'Abbrechen in der Rueckfrage sendet nichts');
+
+  console.log('== Aufnahme-Taste');
+  srv.rec = { can: false, on: false, secs: 0, kib: 0, drop: 0, file: '', end: '' }; await w.poll(); await sleep(50);
+  check($('rec').hidden === true, 'Quelle nicht aufnehmbar: Taste versteckt');
+  srv.rec.can = true; await w.poll(); await sleep(50);
+  check($('rec').hidden === false && /Aufnahme/.test($('recb').textContent) && !$('recb').classList.contains('recon'), 'aufnehmbar: Taste sichtbar');
+  srv.posts.length = 0; $('recb').click(); await sleep(50);
+  check(srv.posts.length === 1 && srv.posts[0].body.cmd === 'rec_toggle', 'Klick sendet rec_toggle');
+  srv.rec = { can: true, on: true, secs: 125, kib: 24000, drop: 2048, file: '2026-11-16_14-32-05.wav', end: '' }; await w.poll(); await sleep(50);
+  check($('recb').classList.contains('recon') && /Stopp/.test($('recb').textContent) && $('recs').textContent.includes('2:05') && $('recs').textContent.includes('2026-11-16_14-32-05.wav') && $('recs').textContent.includes('2 KiB verloren'), 'laeuft: ' + $('recs').textContent);
+  srv.rec = { can: true, on: true, secs: 0, kib: 0, drop: 0, file: '', end: '' }; await w.poll(); await sleep(50);
+  check($('recs').textContent === 'bereit, wartet auf Ton', 'bereit ohne Ton: ' + $('recs').textContent);
+  srv.rec = { can: true, on: false, secs: 9, kib: 1, drop: 0, file: 'x.wav', end: 'Karte voll' }; await w.poll(); await sleep(50);
+  check($('recs').textContent === 'Aufnahme beendet: Karte voll' && !$('recb').classList.contains('recon'), 'Ende mit Grund: ' + $('recs').textContent);
+  srv.rec = { can: false, on: true, secs: 1, kib: 1, drop: 0, file: 'x.wav', end: '' }; srv.source = 'media'; await w.poll(); await sleep(50);
+  check($('rec').hidden === false, 'laufende Aufnahme bleibt bedienbar sichtbar');
 
   console.log('== Ergebnis: ' + (fails ? 'FEHLER (' + fails + ')' : 'OK'));
   process.exit(fails ? 1 : 0);

@@ -12,6 +12,7 @@
 #endif
 #include "irm_core.h"
 #include "irm_kiwi_uri.h"
+#include "irm_rec.h"
 #include "irm_web_dir.h"
 #if CONFIG_IRM_DIR_ENABLE
 #include "irm_dir.h"
@@ -100,6 +101,19 @@ static esp_err_t h_status(httpd_req_t *req)
         char rel[IRM_DL_PATH_MAX + 1];
         if (irm_path_strip_root(s.uri, IRM_SD_MOUNT_POINT, rel, sizeof(rel))) { irm_dirlist_utf8_clean(rel); cJSON_AddStringToObject(j, "path", rel); }
     }
+#if CONFIG_IRM_REC_ENABLE
+    {   /* Aufnahme: can = Taste sinnvoll (Quelle aufnehmbar, SD vorhanden); Dateiname/Grund sind ASCII bzw. feste Texte */
+        irm_rec_info_t ri; irm_rec_info(&ri);
+        cJSON *rj = cJSON_AddObjectToObject(j, "rec");
+        cJSON_AddBoolToObject(rj, "can", (s.source == IRM_SOURCE_RADIO || s.source == IRM_SOURCE_KIWI) && irm_board_sd_mounted());
+        cJSON_AddBoolToObject(rj, "on", ri.active);
+        cJSON_AddNumberToObject(rj, "secs", ri.secs);
+        cJSON_AddNumberToObject(rj, "kib", (double)(ri.bytes / 1024u));
+        cJSON_AddNumberToObject(rj, "drop", ri.dropped_bytes);
+        cJSON_AddStringToObject(rj, "file", ri.file);
+        cJSON_AddStringToObject(rj, "end", ri.end_reason);
+    }
+#endif
 #if CONFIG_IRM_NETIN_ENABLE
     if (s.source == IRM_SOURCE_NET) {    /* Netzwerk-Eingang: Absender (leer = wartet), Port und erwartetes Format fuer die Anleitung im Web-UI */
         cJSON *nb = cJSON_AddObjectToObject(j, "net");
@@ -146,6 +160,9 @@ static const struct { const char *name; irm_cmd_id_t id; } k_cmds[] = {
     { "kiwi_tune", IRM_CMD_KIWI_TUNE },   /* value = Hz */
     { "kiwi_step", IRM_CMD_KIWI_STEP },   /* value = +-Hz */
     { "kiwi_mode", IRM_CMD_KIWI_MODE },   /* value = Index, oder "mode":"usb" */
+    { "rec_start",  IRM_CMD_REC_START },  /* Aufnahme (nur Radio/KiwiSDR) */
+    { "rec_stop",   IRM_CMD_REC_STOP },
+    { "rec_toggle", IRM_CMD_REC_TOGGLE },
     { "media_all", IRM_CMD_MEDIA_ALL },   /* Quelle Dateien: ganze SD-Karte rekursiv als Playlist */
     { "kiwi_fav",  IRM_CMD_KIWI_FAVORITE },   /* aktuellen Kiwi-Eintrag samt Frequenz in kiwi.m3u speichern; optional "name":"..." */
     { "kiwi_del",  IRM_CMD_KIWI_DELETE },     /* value = Listenindex eines Favoriten: aus kiwi.m3u entfernen */

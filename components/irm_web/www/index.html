@@ -62,6 +62,7 @@
     padding: .5rem .9rem;
     cursor: pointer;
   }
+  button.recon { background: #b00020; color: #fff; border-color: #b00020; }
   button:hover {
     border-color: var(--ac);
   }
@@ -290,6 +291,12 @@
   </div>
 </div>
 
+<!-- Aufnahme (nur Radio und KiwiSDR; Ziel: SD-Karte, Ordner recordings) -->
+<div class="row" id="rec" hidden>
+  <button id="recb" onclick="c('rec_toggle')" title="Aufnahme als WAV auf die SD-Karte (Start/Stopp)">⏺ Aufnahme</button>
+  <span class="mut" id="recs"></span>
+</div>
+
 <!-- Transport, Quelle, Lautstärke -->
 <div class="row">
   <button onclick="c('prev')">⏮</button>
@@ -486,6 +493,20 @@ function eqchg() {
 
 $('eq').innerHTML = F.map((f, i) => `<div><input type="range" min="-12" max="12" value="0" oninput="eqchg()"><br>${f}</div>`).join('');
 
+/* ---- Aufnahme: Taste nur bei aufnehmbarer Quelle (oder laufender Aufnahme); Name/Grund kommen als Text, nur per textContent ---- */
+function rec(s) {
+  const r = s.rec, box = $('rec');
+  box.hidden = !(r && (r.can || r.on));
+  if (!r) return;
+  $('recb').textContent = r.on ? '⏹ Stopp' : '⏺ Aufnahme';
+  $('recb').classList.toggle('recon', !!r.on);
+  const m = Math.floor(r.secs / 60), t = String(r.secs % 60).padStart(2, '0');
+  $('recs').textContent = r.on
+    ? (r.file ? `${m}:${t} · ${r.file} · ${(r.kib / 1024).toFixed(1)} MB` : 'bereit, wartet auf Ton')
+      + (r.drop ? ` · ${Math.ceil(r.drop / 1024)} KiB verloren` : '')
+    : (r.end ? 'Aufnahme beendet: ' + r.end : '');
+}
+
 /* ---- Status abfragen (alle 2 s) und Oberfläche nachführen ---- */
 async function poll() {
   try {
@@ -497,6 +518,7 @@ async function poll() {
     $('name').textContent = s.name || '–';
     $('src').textContent = { radio: 'Radio', media: 'Dateien', kiwi: 'KiwiSDR', net: 'Netzwerk' }[s.source] || s.source;
     kiwi(s);
+    rec(s);
     media(s);
     netin(s);
 
