@@ -45,4 +45,7 @@ typedef struct {
     /* nur bei source == IRM_SOURCE_NET gueltig (sonst "" / 0); wird von irm_netin veroeffentlicht */
     char               net_peer[16];     /* IP des aktiven Absenders, "" = wartet auf einen Sender */
     uint32_t           net_underruns;
+    /* Aufnahme (irm_rec): laeuft/bereit und aufgenommene Sekunden; wird von irm_rec veroeffentlicht */
+    bool               rec;
+    uint32_t           rec_secs;
 } irm_status_t;

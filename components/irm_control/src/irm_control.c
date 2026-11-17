@@ -21,6 +21,7 @@
 #if CONFIG_IRM_DIR_ENABLE
 #include "irm_dir.h"
 #endif
+#include "irm_rec.h"
 #if CONFIG_IRM_NETIN_ENABLE
 #include "irm_netin.h"
 #endif
@@ -526,6 +527,22 @@ static void kiwi_delete_favorite(int32_t idx)
 }
 #endif
 
+static void handle(const irm_cmd_t *m);
+
+/* Aufnahme starten. Wie beim Kassettenrecorder: REC bei stehendem Band startet auch die Wiedergabe (erst die Aufnahme bereitmachen, dann abspielen,
+ * damit kein Ton verloren geht). */
+static void rec_start(void)
+{
+    const esp_err_t e = irm_rec_start(c.source);
+    if (e == ESP_ERR_INVALID_STATE) return;   /* laeuft schon */
+    if (e != ESP_OK) { ESP_LOGW(TAG, "Aufnahme nicht moeglich: %s", e == ESP_ERR_NOT_SUPPORTED ? "diese Quelle ist nicht aufnehmbar" : (e == ESP_ERR_NOT_FOUND ? "keine SD-Karte" : "Fehler")); return; }
+    irm_status_t st; irm_status_get(&st);
+    if (st.player == IRM_PLAYER_IDLE || st.player == IRM_PLAYER_PAUSED || st.player == IRM_PLAYER_ERROR) {
+        const irm_cmd_t n = { .id = IRM_CMD_PLAY };
+        handle(&n);
+    }
+}
+
 static void handle(const irm_cmd_t *m)
 {
     irm_status_t st; irm_status_get(&st);
@@ -539,6 +556,7 @@ static void handle(const irm_cmd_t *m)
         else if (st.player != IRM_PLAYER_PLAYING && st.player != IRM_PLAYER_CONNECTING) { c.retry_s = 1; start_current(); }
         break;
     case IRM_CMD_PAUSE:
+        irm_rec_stop();               /* Band anhalten */
         c.want_play = false;
         esp_timer_stop(c.retry_timer);
         if (c.source == IRM_SOURCE_MEDIA) irm_audio_pause();
@@ -551,6 +569,7 @@ static void handle(const irm_cmd_t *m)
         break;
     }
     case IRM_CMD_STOP:
+        irm_rec_stop();
         c.want_play = false; esp_timer_stop(c.retry_timer); stop_engines(); set_player(IRM_PLAYER_IDLE); break;
     case IRM_CMD_VOLUME_UP:   set_volume(c.volume + CONFIG_IRM_VOLUME_STEP); break;
     case IRM_CMD_VOLUME_DOWN: set_volume((int)c.volume - CONFIG_IRM_VOLUME_STEP); break;
@@ -571,6 +590,9 @@ static void handle(const irm_cmd_t *m)
         if (media_load_all()) { c.source = IRM_SOURCE_MEDIA; select_index(0); }
         break;
     case IRM_CMD_MEDIA_PLAY_PATH: media_play_path(); break;
+    case IRM_CMD_REC_START:  rec_start(); break;
+    case IRM_CMD_REC_STOP:   irm_rec_stop(); break;
+    case IRM_CMD_REC_TOGGLE: if (irm_rec_active()) irm_rec_stop(); else rec_start(); break;
     case IRM_CMD_SET_EQ:   set_eq(&m->eq); break;
     case IRM_CMD_RESET_EQ: { irm_eq_t z = { 0 }; set_eq(&z); break; }
     case IRM_CMD_SAVE_EQ:  irm_settings_save_eq(&c.eq); break;
@@ -585,6 +607,9 @@ static void handle(const irm_cmd_t *m)
         break;
     default: break;
     }
+    /* Die Aufnahme gilt der Quelle, bei der sie gestartet wurde: Quellenwechsel (auch Dateiauswahl, Server aus dem Verzeichnis) stoppt das Band.
+     * Senderwechsel innerhalb der Quelle nicht - das Band laeuft weiter. */
+    if (irm_rec_active()) { irm_rec_info_t ri; irm_rec_info(&ri); if (ri.active && ri.source != c.source) irm_rec_stop(); }
 }
 
 static void audio_cb(const irm_audio_evt_t *e, void *ctx)
@@ -691,9 +716,11 @@ esp_err_t irm_control_start(void)
 
     esp_err_t e = irm_audio_init(irm_board_codec(), irm_board_sink(), audio_cb, NULL);
     if (e != ESP_OK) return e;
+    irm_rec_init(irm_board_sink());     /* haengt sich in die Ausgabesenke ein; ESP_ERR_NOT_SUPPORTED bei IRM_REC_ENABLE=n ist in Ordnung */
 #if CONFIG_IRM_KIWI_ENABLE
     if (irm_kiwi_init(irm_board_sink(), kiwi_cb, NULL) == ESP_OK) {
         c.kiwi_ok = true;
+        irm_kiwi_set_tap(irm_rec_feed_kiwi);
 #if CONFIG_IRM_DIR_ENABLE
         irm_dir_init();
 #endif

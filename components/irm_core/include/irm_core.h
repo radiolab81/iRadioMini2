@@ -29,6 +29,9 @@ typedef enum {
     IRM_CMD_KIWI_DELETE,    /* value = Index eines Favoriten in der Kiwi-Liste: aus /kiwi.m3u und aus der Liste entfernen (laeuft er gerade, spielt er als Direkteintrag weiter) */
     IRM_CMD_MEDIA_ALL,      /* Quelle Dateien: gesamte SD-Karte rekursiv als Playlist (Standard beim Wechsel zur Quelle) */
     IRM_CMD_MEDIA_PLAY_PATH,/* Datei abspielen; Pfad liegt in irm_control (siehe irm_control_play_path), Playlist = Dateien des Ordners */
+    IRM_CMD_REC_START,      /* Aufnahme der aktuellen Quelle (Radio/KiwiSDR) auf SD starten; aus Pause/Stopp startet auch die Wiedergabe */
+    IRM_CMD_REC_STOP,
+    IRM_CMD_REC_TOGGLE,
     /* intern (nur von irm_control/irm_audio verwendet) */
     IRM_CMD_INTERNAL_AUDIO_EVENT,
     IRM_CMD_INTERNAL_NET_CHANGED,

@@ -18,6 +18,7 @@
 #include "irm_netin.h"
 #include "irm_dir.h"
 #include "irm_playlist.h"
+#include "irm_rec.h"
 #include "irm_settings.h"
 #include "esp_timer.h"
 #include <freertos/task.h>
@@ -68,6 +69,15 @@ esp_err_t irm_audio_set_eq(const irm_eq_t *e) { (void)e; return ESP_OK; }
 esp_err_t irm_kiwi_init(irm_out_sink_t *s, irm_kiwi_cb_t cb, void *x) { (void)s; (void)x; k_cb = cb; return ESP_OK; }
 esp_err_t irm_kiwi_play(const char *u, bool reset) { if (a_active || n_active) { violations++; printf("  FEHLER: irm_kiwi_play bei aktiver Audio-Pipeline/Netzwerk-Eingang\n"); } k_active = 1; k_plays++; strcpy(k_uri, u); k_reset = reset; return ESP_OK; }
 esp_err_t irm_kiwi_stop(void) { k_active = 0; k_stops++; return ESP_OK; }
+/* Fake-Recorder: merkt Zustand und Quelle wie das echte irm_rec (das eigene Host-Test hat: irm_rec/test/host) */
+static int rc_active, rc_src = -1, rc_starts, rc_stops, rc_tap_set;
+esp_err_t irm_rec_init(irm_out_sink_t *s) { (void)s; return ESP_OK; }
+esp_err_t irm_rec_start(irm_source_t src) { if (src != IRM_SOURCE_RADIO && src != IRM_SOURCE_KIWI) return ESP_ERR_NOT_SUPPORTED; if (rc_active) return ESP_ERR_INVALID_STATE; rc_active = 1; rc_src = src; rc_starts++; return ESP_OK; }
+esp_err_t irm_rec_stop(void) { if (rc_active) rc_stops++; rc_active = 0; return ESP_OK; }
+bool irm_rec_active(void) { return rc_active; }
+void irm_rec_info(irm_rec_info_t *o) { memset(o, 0, sizeof(*o)); o->active = rc_active; o->source = (irm_source_t)rc_src; }
+void irm_rec_feed_kiwi(const int16_t *m, size_t n, uint32_t r) { (void)m; (void)n; (void)r; }
+void irm_kiwi_set_tap(irm_kiwi_tap_t fn) { rc_tap_set = fn != NULL; }
 static irm_netin_cb_t n_cb;
 esp_err_t irm_netin_init(irm_out_sink_t *s, irm_netin_cb_t cb, void *x) { (void)s; (void)x; n_cb = cb; return ESP_OK; }
 esp_err_t irm_netin_play(void) { if (a_active || k_active) { violations++; printf("  FEHLER: irm_netin_play bei aktiver Audio-Pipeline/Kiwi-Sitzung\n"); } n_active = 1; n_plays++; return ESP_OK; }
@@ -534,6 +544,37 @@ int main(void)
         CHECK(irm_control_browse(&rq, &js) == ESP_ERR_NOT_FOUND && !js, "ohne SD-Karte -> NOT_FOUND"); sd_mounted = 1;
         cmd(IRM_CMD_STOP, 0);
         snprintf(b, sizeof b, "rm -rf %s", IRM_SD_MOUNT_POINT); if (system(b)) {}
+    }
+
+    printf("== Aufnahme (Radio/KiwiSDR): Kommandos, Bandlogik\n");
+    {
+        CHECK(rc_tap_set, "Kiwi-Abgriff verdrahtet (irm_kiwi_set_tap)");
+        cmd(IRM_CMD_INTERNAL_NET_CHANGED, 1);
+        while (S().source != IRM_SOURCE_RADIO) cmd(IRM_CMD_TOGGLE_SOURCE, 0);
+        cmd(IRM_CMD_STOP, 0);
+        EXPECT_STATE(IRM_SOURCE_RADIO, IRM_PLAYER_IDLE, S().index);
+        cmd(IRM_CMD_REC_TOGGLE, 0);
+        CHECK(rc_active && rc_src == IRM_SOURCE_RADIO, "REC bei stehendem Band: Aufnahme bereit fuer Radio");
+        CHECK(S().player == IRM_PLAYER_CONNECTING && a_active, "... und die Wiedergabe startet mit (REC+PLAY)");
+        audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+        cmd(IRM_CMD_NEXT, 0);
+        CHECK(rc_active, "Senderwechsel: Band laeuft weiter");
+        cmd(IRM_CMD_REC_TOGGLE, 0);
+        CHECK(!rc_active, "REC_TOGGLE bei laufender Aufnahme stoppt sie");
+        cmd(IRM_CMD_REC_START, 0); cmd(IRM_CMD_REC_START, 0);
+        CHECK(rc_active && rc_starts == 2, "REC_START doppelt: nur ein Start (%d)", rc_starts);
+        cmd(IRM_CMD_PAUSE, 0);
+        CHECK(!rc_active, "Pause stoppt die Aufnahme");
+        cmd(IRM_CMD_PLAY, 0); cmd(IRM_CMD_REC_START, 0);
+        CHECK(rc_active, "neu begonnen");
+        cmd(IRM_CMD_TOGGLE_SOURCE, 0);
+        CHECK(!rc_active && S().source == IRM_SOURCE_MEDIA, "Quellenwechsel (Radio -> Medien) stoppt die Aufnahme");
+        int st0 = rc_starts;
+        cmd(IRM_CMD_REC_START, 0);
+        CHECK(!rc_active && rc_starts == st0, "Medien: nicht aufnehmbar, kein Start");
+        cmd(IRM_CMD_REC_STOP, 0);
+        CHECK(!rc_active, "REC_STOP ohne Aufnahme harmlos");
+        cmd(IRM_CMD_STOP, 0);
     }
 
     CHECK(violations == 0, "Exklusivitaet: %d Verletzungen ueber den gesamten Lauf (a_plays=%d, k_plays=%d)", violations, a_plays, k_plays);
