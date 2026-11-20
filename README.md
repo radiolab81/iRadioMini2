@@ -95,7 +95,7 @@ PC lässt sich eine Datei auch dauerhaft umwandeln: `ffmpeg -i in.m4a -c copy -m
 |---|---|
 | `GET /api/status` | Zustand (Quelle, Player, Sender, Lautstärke, Format, EQ) |
 | `GET /api/list` | Namen der aktiven Liste (Sender bzw. Dateien) |
-| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source\|media_all\|kiwi_tune\|kiwi_step\|kiwi_mode\|kiwi_fav\|kiwi_del","value":n}` (`source`: 0 Radio, 1 Medien, 2 KiwiSDR, 3 Netzwerk; `media_all`: ganze SD-Karte rekursiv als Wiedergabeliste; `kiwi_*` siehe [KiwiSDR](docs/KIWI.md)) |
+| `POST /api/cmd` | `{"cmd":"next\|prev\|play\|pause\|toggle\|stop\|vol_up\|vol_down\|volume\|goto\|source\|toggle_source\|media_all\|kiwi_tune\|kiwi_step\|kiwi_mode\|kiwi_fav\|kiwi_del\|shuffle\|loop","value":n}` (`shuffle`/`loop`: nur Quelle Dateien, `1` an, `0` aus, ohne `value` umschalten; Zufallswiedergabe im aktuellen Ordner bzw. laufenden Titel wiederholen; beide in `GET /api/status` als `shuffle`/`loop`; `source`: 0 Radio, 1 Medien, 2 KiwiSDR, 3 Netzwerk; `media_all`: ganze SD-Karte rekursiv als Wiedergabeliste; `kiwi_*` siehe [KiwiSDR](docs/KIWI.md)) |
 | `GET /api/files?path=/Ordner&after=d:Name\|f:Name&limit=30` | Dateibrowser: eine Seite des SD-Ordners (Ordner zuerst, alphabetisch), `{"path","total","more","items":[{"n","d"?}]}`; `after` = Cursor (letzter Eintrag der Vorseite), `limit` 1–40; `400` bei ungültigem Pfad, `404` ohne SD-Karte/Ordner |
 | `POST /api/files/play` | `{"path":"/Ordner/titel.mp3"}` – Datei abspielen; Wiedergabeliste = Dateien dieses Ordners (`404` wenn nicht vorhanden/keine passende Endung, `400` bei ungültigem Pfad) |
 | `POST /api/eq` | `{"gains":[10 Werte in dB, -12..12],"save":true}` bzw. `{"action":"reset"\|"save"}` |

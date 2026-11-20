@@ -1,3 +1,15 @@
+# iRadioMini2 – Mediaplayer: Zufall und Titel wiederholen
+
+* **Zufallswiedergabe** (Quelle Dateien): spielt die Titel der aktuellen Wiedergabeliste (= Ordner der gewählten Datei bzw. „Alle Titel“) in gemischter Reihenfolge. Jeder Titel kommt einmal pro Runde, danach wird neu gemischt (der letzte Titel nicht gleich nochmal). Weiter/Zurück folgen der gemischten Reihenfolge; Direktwahl eines Titels beginnt eine neue Runde ab diesem Titel.
+* **Titel wiederholen (Loop):** der laufende Titel startet am Ende neu. Weiter/Zurück springen trotzdem. Mit Zufall kombinierbar (Loop gewinnt beim Titelende).
+* **Bedienung:** Web-UI (zwei Schalter im Dateibrowser), `POST /api/cmd {"cmd":"shuffle"|"loop","value":1|0}` (ohne `value` umschalten), Status `shuffle`/`loop` in `/api/status` bzw. `irm_status_t`; neue Kommandos `IRM_CMD_SHUFFLE`/`IRM_CMD_LOOP`. Die Schalter werden nicht gespeichert (nach Neustart aus).
+* **Taster:** `IRM_BTN_SHUFFLE` und `IRM_BTN_LOOP` (menuconfig → Eingabe, Standard aus = -1; GPIO nach Wahl, active low): ein Druck = an/aus, wirkt nur in der Quelle Dateien.
+* **Anzeige:** Text-Displays (SSD1306, HD44780) zeigen in der Quelle Dateien hinter dem Zustand `Z` (Zufall) und `L` (Wiederholen), z. B. `PLAY Z L 44.1k 128k`. LVGL: Skin *basic* mit zwei Touch-Tasten (🔀/🔁, aktiv = hervorgehoben, nur in der Quelle Dateien sichtbar), die Skins *linear*, *round* und *cassette* mit Symbolen oben rechts.
+* **Fehlerfall:** Eine defekte Datei wird auch bei Loop übersprungen; sind nacheinander alle Titel der Liste defekt (oder die einzige Datei), hält die Wiedergabe an statt endlos zu springen.
+* **Tests:** `irm_control`-Host-Test (Loop, Zufallsrunden, Zurück, Direktwahl, Fehlerfälle), Web-UI-Test (Schalter).
+
+---
+
 # iRadioMini2 – Aufnahme: Feinschliff nach Hardwaretest (2026-11-17)
 
 * **Vorgaben:** `IRM_REC_BUFFER_KB` 64 (vorher 192: hörbares Stottern im Radiobetrieb), `IRM_REC_SYNC_S` 20 (vorher 5).

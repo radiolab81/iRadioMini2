@@ -43,7 +43,7 @@ KiwiSDR-Quelle, siehe [KIWI.md](KIWI.md). `irm_kiwi_init(sink, cb, ctx)/play(uri
 Frequenz/Modus/Feldstärke stehen in `irm_status_t.kiwi_*`. `irm_formats/irm_kiwi_uri.h` (URI-Parser, Modus-Tabelle) und `irm_out/irm_resamp.h` (Resampler + Drift-Regler) sind reines C.
 
 ## irm_input
-Taster (Play/Pause kurz, Quellenwechsel lang; Weiter; Zurück; Lauter/Leiser mit Wiederholung) und PCNT-Drehgeber (Lautstärke oder Sender).
+Taster (Play/Pause kurz, Quellenwechsel lang; Weiter; Zurück; Lauter/Leiser mit Wiederholung; optional Aufnahme, Zufall und Titel wiederholen im Mediaplayer: `IRM_BTN_REC`/`IRM_BTN_SHUFFLE`/`IRM_BTN_LOOP`, Standard aus) und PCNT-Drehgeber (Lautstärke oder Sender).
 
 ## irm_display + Backends
 `irm_display_start(&backend)`; Backends: `irm_disp_ssd1306` (u8g2), `irm_disp_hd44780` (PCF8574), `irm_disp_servo` (LEDC),
