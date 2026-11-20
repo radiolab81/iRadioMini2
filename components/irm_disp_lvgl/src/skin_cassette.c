@@ -3,7 +3,7 @@
 #include "irm_assets.h"
 #include "irm_skin.h"
 
-static lv_obj_t *s_left, *s_right, *s_label;
+static lv_obj_t *s_left, *s_right, *s_label, *s_mode;
 static bool s_spinning;
 
 static void rotate(void *unused, int32_t angle)
@@ -30,10 +30,14 @@ static void create(lv_obj_t *scr)
     lv_label_set_long_mode(s_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     lv_obj_set_width(s_label, 100);
     lv_obj_align(s_label, LV_ALIGN_TOP_MID, 55, 42);
+
+    s_mode = lv_label_create(scr);                  /* Zufall/Wiederholen (nur Quelle Dateien) */
+    lv_obj_align(s_mode, LV_ALIGN_TOP_RIGHT, -4, 2);
 }
 
 static void update(const irm_status_t *st)
 {
+    lv_label_set_text(s_mode, irm_skin_mode_text(st));
     lv_label_set_text(s_label, (st->index >= 0 && st->name[0]) ? st->name : "");
     bool play = st->player == IRM_PLAYER_PLAYING;
     if (play == s_spinning) return;

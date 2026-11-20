@@ -8,7 +8,7 @@
 #define NEEDLE_LEFT   80     /* Zeigerposition erster Sender (px) */
 #define NEEDLE_RIGHT  310    /* Zeigerposition letzter Sender (px) */
 
-static lv_obj_t *s_needle, *s_label;
+static lv_obj_t *s_needle, *s_label, *s_mode;
 static int32_t s_last_index = -2;
 static char s_pending[IRM_NAME_MAX_LEN];
 
@@ -35,10 +35,15 @@ static void create(lv_obj_t *scr)
     lv_obj_set_width(s_label, 250);
     lv_obj_set_style_text_color(s_label, lv_color_white(), 0);
     lv_obj_align(s_label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+
+    s_mode = lv_label_create(scr);                  /* Zufall/Wiederholen (nur Quelle Dateien) */
+    lv_obj_set_style_text_color(s_mode, lv_color_white(), 0);
+    lv_obj_align(s_mode, LV_ALIGN_TOP_RIGHT, -4, 2);
 }
 
 static void update(const irm_status_t *st)
 {
+    lv_label_set_text(s_mode, irm_skin_mode_text(st));
     snprintf(s_pending, sizeof(s_pending), "%s", st->index >= 0 ? st->name : "");
     if (st->index == s_last_index) { lv_label_set_text(s_label, s_pending); return; }
     s_last_index = st->index;

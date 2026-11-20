@@ -38,6 +38,9 @@ typedef struct {
     uint8_t            bits;
     uint32_t           bitrate;
     irm_eq_t           eq;
+    /* Mediaplayer (Quelle Dateien): Zufallswiedergabe im aktuellen Ordner / laufenden Titel wiederholen; wirkt nur bei source == IRM_SOURCE_MEDIA, bleibt aber bei Quellenwechsel erhalten */
+    bool               shuffle;
+    bool               loop;
     /* nur bei source == IRM_SOURCE_KIWI gueltig (sonst 0 / "" / IRM_RSSI_NONE); wird von irm_kiwi veroeffentlicht */
     uint32_t           kiwi_freq_hz;
     int16_t            kiwi_rssi_dbm;

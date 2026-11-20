@@ -10,4 +10,12 @@ typedef struct {
     void (*update)(const irm_status_t *st);
 } irm_skin_t;
 
+/* Symbole fuer Zufall/Wiederholen; nur in der Quelle Dateien und nur, wenn etwas aktiv ist (sonst leer) */
+static inline const char *irm_skin_mode_text(const irm_status_t *st)
+{
+    if (st->source != IRM_SOURCE_MEDIA) return "";
+    if (st->shuffle && st->loop) return LV_SYMBOL_SHUFFLE " " LV_SYMBOL_LOOP;
+    return st->shuffle ? LV_SYMBOL_SHUFFLE : (st->loop ? LV_SYMBOL_LOOP : "");
+}
+
 extern const irm_skin_t irm_skin_active;   /* vom Kconfig gewaehlt, genau eine Definition wird gelinkt */

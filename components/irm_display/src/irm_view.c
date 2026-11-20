@@ -15,6 +15,8 @@ void irm_view_info(const irm_status_t *st, char *out, size_t n)
 {
     static const char *const ps[] = { "STOP", "CONN", "PLAY", "PAUSE", "FEHLER" };
     int len = snprintf(out, n, "%s", ps[st->player <= IRM_PLAYER_ERROR ? st->player : 0]);
+    if (st->source == IRM_SOURCE_MEDIA && len > 0 && (size_t)len < n)     /* Mediaplayer: Zufall / Wiederholen anzeigen */
+        len += snprintf(out + len, n - (size_t)len, "%s%s", st->shuffle ? " Z" : "", st->loop ? " L" : "");
     if (st->source == IRM_SOURCE_KIWI && st->kiwi_freq_hz) {   /* statt Abtastrate/Bitrate: "PLAY 7055.5 USB -73dBm" */
         char f[16], m[8];
         irm_kiwi_fmt_khz(f, sizeof(f), st->kiwi_freq_hz);

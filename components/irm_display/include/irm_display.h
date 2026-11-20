@@ -18,6 +18,7 @@ esp_err_t irm_display_start(const irm_display_backend_t *backend);
 
 /* Gemeinsame Textaufbereitung fuer Zeichen-Backends */
 void irm_view_title(const irm_status_t *st, char *out, size_t n);   /* Sendername / Titel */
+/* irm_view_info haengt in der Quelle Dateien " Z" (Zufall) und " L" (Titel wiederholen) hinter den Zustand: "PLAY Z L 44.1k 128k" */
 void irm_view_info(const irm_status_t *st, char *out, size_t n);    /* "PLAY 44.1k 128k" bzw. Netzstatus */
 void irm_view_volume(const irm_status_t *st, char *out, size_t n);  /* "Vol 30%" */
 

@@ -2,6 +2,7 @@
 #include <string.h>
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -28,7 +29,7 @@
 
 static const char *TAG = "irm_ctrl";
 
-enum { P_PLAYER = 1, P_ITEM = 2, P_VOL = 4, P_FMT = 8, P_EQ = 16, P_LIST = 32 };
+enum { P_PLAYER = 1, P_ITEM = 2, P_VOL = 4, P_FMT = 8, P_EQ = 16, P_LIST = 32, P_MODE = 64 };
 typedef struct { unsigned mask; irm_status_t v; } patch_t;
 
 static struct {
@@ -47,6 +48,12 @@ static struct {
     bool               dyn_valid;    /* "Direkteintrag": im Verzeichnis gewaehlter Server, steht hinter den Favoriten (virtueller Index = Anzahl Favoriten) */
     char               dyn_name[IRM_NAME_MAX_LEN], dyn_uri[IRM_URI_MAX_LEN];
     char               pending_path[IRM_DL_PATH_MAX + 1];   /* Ziel von IRM_CMD_MEDIA_PLAY_PATH (list_lock) */
+    /* Mediaplayer: Zufallswiedergabe/Wiederholen (nur Steuer-Task). order = Abspielreihenfolge als Permutation der Indizes der Medien-Playlist,
+     * order_pos = Position des laufenden Titels darin; order_n = 0: noch nicht (oder nicht mehr) passend aufgebaut. */
+    bool               shuffle, loop;
+    uint16_t          *order;
+    size_t             order_n, order_pos;
+    size_t             media_errs;   /* Dateien in Folge ohne Wiedergabestart (Fehler): bricht das Ueberspringen ab, wenn die ganze Liste defekt ist */
     char               pending_name[IRM_NAME_MAX_LEN];      /* Name fuer den naechsten IRM_CMD_KIWI_FAVORITE, leer = Name des laufenden Eintrags (list_lock) */
     bool               kiwi_fresh;   /* naechster Kiwi-Start: Abstimmung aus dem Eintrag statt der zuletzt eingestellten */
     int                retry_s;
@@ -70,6 +77,7 @@ static void apply_patch(irm_status_t *s, void *ctx)
     if (p->mask & P_VOL) s->volume = p->v.volume;
     if (p->mask & P_FMT) { s->sample_rate = p->v.sample_rate; s->channels = p->v.channels; s->bits = p->v.bits; s->bitrate = p->v.bitrate; }
     if (p->mask & P_EQ) s->eq = p->v.eq;
+    if (p->mask & P_MODE) { s->shuffle = p->v.shuffle; s->loop = p->v.loop; }
 }
 static void publish(patch_t *p) { irm_status_update(apply_patch, p); }
 static void set_player(irm_player_state_t st) { patch_t p = { .mask = P_PLAYER }; p.v.player = st; publish(&p); }
@@ -202,11 +210,63 @@ retry:
     }
 }
 
+/* ---- Zufallswiedergabe: Permutation der Medien-Playlist, jeder Titel kommt einmal vor jeder Wiederholung (kein doppelter Zufall) ---- */
+
+/* order neu aufbauen: `first` steht an Position 0, der Rest ist gemischt (Fisher-Yates). false bei Speichermangel (dann wird nicht gemischt). */
+static bool shuf_build(size_t n, size_t first)
+{
+    uint16_t *o = realloc(c.order, n * sizeof(*o));
+    if (!o) { c.order_n = 0; return false; }
+    c.order = o;
+    for (size_t i = 0; i < n; i++) o[i] = (uint16_t)i;
+    o[0] = (uint16_t)first; o[first] = 0;
+    for (size_t i = n - 1; i > 1; i--) {
+        const size_t j = 1 + (size_t)(esp_random() % i);          /* 1..i: Position 0 bleibt */
+        const uint16_t t = o[i]; o[i] = o[j]; o[j] = t;
+    }
+    c.order_n = n; c.order_pos = 0;
+    return true;
+}
+
+/* Reihenfolge zum laufenden Titel `cur` passend machen (nach Listenwechsel, Direktwahl oder Einschalten wird neu gemischt, der gewaehlte Titel zuerst) */
+static bool shuf_sync(size_t n, size_t cur)
+{
+    if (c.order_n == n && c.order_pos < n && c.order[c.order_pos] == cur) return true;
+    return n > 0 && cur < n && shuf_build(n, cur);
+}
+
+/* Zielindex fuer Weiter (dir > 0) / Zurueck (dir < 0) in der Medien-Playlist; bei Zufallswiedergabe der Nachbar in der gemischten Reihenfolge */
+static int32_t media_target(int dir)
+{
+    const int32_t cur = c.index[IRM_SOURCE_MEDIA];
+    const size_t n = irm_control_item_count(IRM_SOURCE_MEDIA);
+    if (!c.shuffle || n < 2 || cur < 0 || !shuf_sync(n, (size_t)cur)) return cur + dir;
+    if (dir > 0) {
+        if (c.order_pos + 1 < n) c.order_pos++;
+        else if (shuf_build(n, (size_t)cur)) c.order_pos = 1;       /* Runde zu Ende: neu mischen, der gerade gespielte Titel kommt nicht gleich nochmal */
+        else return cur + 1;
+    } else c.order_pos = c.order_pos ? c.order_pos - 1 : n - 1;
+    return c.order[c.order_pos];
+}
+
+static int32_t step_target(int dir) { return c.source == IRM_SOURCE_MEDIA ? media_target(dir) : c.index[c.source] + dir; }
+
+static void publish_mode(void)
+{
+    patch_t p = { .mask = P_MODE };
+    p.v.shuffle = c.shuffle; p.v.loop = c.loop;
+    publish(&p);
+}
+
+/* value: 1 an, 0 aus, < 0 umschalten */
+static bool mode_value(int32_t value, bool cur) { return value < 0 ? !cur : value != 0; }
+
 static void select_index(int32_t idx)
 {
     int32_t n = (int32_t)irm_control_item_count(c.source);
     if (n == 0) { c.index[c.source] = -1; publish_item(); stop_engines(); set_player(IRM_PLAYER_IDLE); return; }
     c.index[c.source] = ((idx % n) + n) % n;
+    if (c.source == IRM_SOURCE_MEDIA && c.shuffle && n > 1) shuf_sync((size_t)n, (size_t)c.index[c.source]);   /* Direktwahl: Reihenfolge ab hier neu */
     c.retry_s = 1;
     c.want_play = true;
     c.kiwi_fresh = true;                        /* neuer Eintrag: Frequenz/Modus aus der Liste */
@@ -224,6 +284,7 @@ static void media_set_list(irm_playlist_t *pl, int32_t idx)
     c.lists[IRM_SOURCE_MEDIA] = pl;
     xSemaphoreGive(c.list_lock);
     c.index[IRM_SOURCE_MEDIA] = idx;
+    c.order_n = 0;                                  /* alte Reihenfolge gehoert zur alten Liste */
 }
 
 /* gesamte SD-Karte rekursiv (bisheriges Verhalten der Quelle Dateien) */
@@ -375,11 +436,11 @@ static void on_audio(const irm_cmd_t *cmd)
         break;
     }
     case IRM_AUDIO_EVT_RUNNING:
-        if (st.player == IRM_PLAYER_CONNECTING || st.player == IRM_PLAYER_PLAYING) { set_player(IRM_PLAYER_PLAYING); c.retry_s = 1; }
+        if (st.player == IRM_PLAYER_CONNECTING || st.player == IRM_PLAYER_PLAYING) { set_player(IRM_PLAYER_PLAYING); c.retry_s = 1; c.media_errs = 0; }
         break;
     case IRM_AUDIO_EVT_FINISHED:
         if (st.player != IRM_PLAYER_PLAYING && st.player != IRM_PLAYER_CONNECTING) break;
-        if (c.source == IRM_SOURCE_MEDIA) select_index(c.index[c.source] + 1);   /* naechster Titel */
+        if (c.source == IRM_SOURCE_MEDIA) select_index(c.loop ? c.index[c.source] : media_target(1));   /* Wiederholen: derselbe Titel, sonst der naechste (bei Zufall der naechste der gemischten Reihenfolge) */
         else { set_player(IRM_PLAYER_ERROR); esp_timer_start_once(c.retry_timer, (uint64_t)c.retry_s * 1000000ULL); }
         break;
     case IRM_AUDIO_EVT_ERROR:
@@ -392,7 +453,10 @@ static void on_audio(const irm_cmd_t *cmd)
             esp_timer_stop(c.retry_timer);
             esp_timer_start_once(c.retry_timer, (uint64_t)c.retry_s * 1000000ULL);
             c.retry_s = (c.retry_s * 2 > CONFIG_IRM_RETRY_MAX_S) ? CONFIG_IRM_RETRY_MAX_S : c.retry_s * 2;
-        } else select_index(c.index[c.source] + 1);   /* defekte Datei ueberspringen */
+        } else if (++c.media_errs >= irm_control_item_count(c.source)) {   /* die ganze Liste war nacheinander defekt (oder die einzige Datei): nicht endlos weiterspringen */
+            ESP_LOGW(TAG, "Mediaplayer: keine Datei abspielbar, halte an");
+            c.want_play = false; stop_engines();
+        } else select_index(media_target(1));   /* defekte Datei ueberspringen, auch bei Wiederholen (sonst endlose Fehlerschleife) */
         break;
     default: break;
     }
@@ -546,9 +610,10 @@ static void rec_start(void)
 static void handle(const irm_cmd_t *m)
 {
     irm_status_t st; irm_status_get(&st);
+    if (m->id < IRM_CMD_INTERNAL_AUDIO_EVENT) c.media_errs = 0;   /* jede Bedienung beginnt das Ueberspringen defekter Dateien von vorn */
     switch (m->id) {
-    case IRM_CMD_NEXT: select_index(c.index[c.source] + 1); break;
-    case IRM_CMD_PREV: select_index(c.index[c.source] - 1); break;
+    case IRM_CMD_NEXT: select_index(step_target(1)); break;
+    case IRM_CMD_PREV: select_index(step_target(-1)); break;
     case IRM_CMD_GOTO: select_index(m->value); break;
     case IRM_CMD_PLAY:
         c.want_play = true;
@@ -590,6 +655,15 @@ static void handle(const irm_cmd_t *m)
         if (media_load_all()) { c.source = IRM_SOURCE_MEDIA; select_index(0); }
         break;
     case IRM_CMD_MEDIA_PLAY_PATH: media_play_path(); break;
+    case IRM_CMD_SHUFFLE:
+        c.shuffle = mode_value(m->value, c.shuffle);
+        c.order_n = 0;                            /* beim naechsten Weiter neu mischen, der laufende Titel zuerst */
+        publish_mode();
+        break;
+    case IRM_CMD_LOOP:
+        c.loop = mode_value(m->value, c.loop);
+        publish_mode();
+        break;
     case IRM_CMD_REC_START:  rec_start(); break;
     case IRM_CMD_REC_STOP:   irm_rec_stop(); break;
     case IRM_CMD_REC_TOGGLE: if (irm_rec_active()) irm_rec_stop(); else rec_start(); break;

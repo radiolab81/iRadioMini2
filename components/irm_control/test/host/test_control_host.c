@@ -46,6 +46,9 @@ void irm_status_update(irm_status_mutator_t fn, void *ctx) { pthread_mutex_lock(
 void irm_status_get(irm_status_t *o) { pthread_mutex_lock(&sm); *o = g_st; pthread_mutex_unlock(&sm); }
 static irm_status_t S(void) { irm_status_t s; irm_status_get(&s); return s; }
 
+/* ---------- Fake-Zufall: feste Folge (xorshift), damit der Test reproduzierbar ist ---------- */
+uint32_t esp_random(void) { static uint32_t x = 2463534242u; x ^= x << 13; x ^= x >> 17; x ^= x << 5; return x; }
+
 /* ---------- Fake-Timer (manuell ausgeloest) ---------- */
 struct esp_timer { void (*cb)(void *); void *arg; int armed; uint64_t delay_us; };
 static struct esp_timer g_timer;
@@ -523,6 +526,115 @@ int main(void)
         CHECK(irm_control_item_count(IRM_SOURCE_MEDIA) == 2 && !strcmp(a_uri, "/sdcard/a.mp3"), "Scan-Liste (Fake: a.mp3, b.mp3)");
         sd_mounted = 0; ap = a_plays; cmd(IRM_CMD_MEDIA_ALL, 0); sd_mounted = 1;
         CHECK(a_plays == ap, "ohne SD-Karte unveraendert");
+
+        printf("== Mediaplayer: Titel wiederholen (Loop)\n");
+        CHECK(irm_control_play_path("/Rock/b.mp3") == ESP_OK, "Rock/b.mp3 starten"); settle();
+        audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+        CHECK(!S().loop && !S().shuffle, "Vorgabe: Loop und Zufall aus");
+        cmd(IRM_CMD_LOOP, 1);
+        CHECK(S().loop && !S().shuffle, "LOOP 1 setzt nur loop");
+        ap = a_plays;
+        audio_evt(IRM_AUDIO_EVT_FINISHED); settle();
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 1);
+        snprintf(want, sizeof want, "%s/Rock/b.mp3", IRM_SD_MOUNT_POINT);
+        CHECK(a_plays == ap + 1 && !strcmp(a_uri, want), "Titelende mit Loop: derselbe Titel startet neu (%s)", a_uri);
+        audio_evt(IRM_AUDIO_EVT_RUNNING); settle(); audio_evt(IRM_AUDIO_EVT_FINISHED); settle();
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 1);
+        CHECK(S().loop, "Loop bleibt an, bis man ihn ausschaltet");
+        cmd(IRM_CMD_NEXT, 0);
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 2);
+        cmd(IRM_CMD_PREV, 0);
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 1);
+        audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+        cmd(IRM_CMD_LOOP, -1);
+        CHECK(!S().loop, "LOOP -1 schaltet um (aus)");
+        audio_evt(IRM_AUDIO_EVT_FINISHED); settle();
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 2);
+        cmd(IRM_CMD_LOOP, -1); cmd(IRM_CMD_LOOP, 0);
+        CHECK(!S().loop, "LOOP 0 schaltet aus");
+        cmd(IRM_CMD_LOOP, 1); cmd(IRM_CMD_LOOP, 5);
+        CHECK(S().loop, "LOOP mit Wert != 0 schaltet an");
+
+        printf("== Mediaplayer: defekte Datei bei Loop nicht endlos wiederholen\n");
+        ap = a_plays; audio_evt(IRM_AUDIO_EVT_ERROR); settle();
+        irm_status_t es = S();
+        CHECK(a_plays == ap + 1 && es.index == 0, "Fehler bei Loop: weiter zum naechsten Titel, nicht derselbe (#%d)", es.index);
+        CHECK(irm_control_play_path("/top.mp3") == ESP_OK, "Ordner mit nur einer Datei"); settle();
+        ap = a_plays; audio_evt(IRM_AUDIO_EVT_ERROR); settle();
+        CHECK(a_plays == ap && S().player == IRM_PLAYER_ERROR && !a_active, "einzige Datei defekt: kein Spin, Wiedergabe haelt an (%d neue Starts)", a_plays - ap);
+        cmd(IRM_CMD_LOOP, 0);
+
+        printf("== Mediaplayer: Zufallswiedergabe im aktuellen Ordner\n");
+        CHECK(irm_control_play_path("/Big/t03.mp3") == ESP_OK, "Ordner /Big (10 Eintraege) ab t03"); settle();
+        audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+        cmd(IRM_CMD_NEXT, 0);
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 4);
+        cmd(IRM_CMD_PREV, 0);
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 3);
+        cmd(IRM_CMD_SHUFFLE, 1);
+        CHECK(S().shuffle && !S().loop && S().index == 3, "SHUFFLE 1: Status gesetzt, laufender Titel bleibt (#%d)", S().index);
+        {
+            int seq[40], sequential = 1;
+            seq[0] = S().index;
+            for (int i = 1; i < 30; i++) {          /* drei Runden: Titelende -> naechster */
+                audio_evt(IRM_AUDIO_EVT_RUNNING); settle(); audio_evt(IRM_AUDIO_EVT_FINISHED); settle();
+                seq[i] = S().index;
+                if (seq[i] != (seq[i - 1] + 1) % 10) sequential = 0;
+            }
+            int seen[10] = { 0 }, perm = 1;
+            for (int i = 0; i < 10; i++) seen[seq[i]]++;
+            for (int i = 0; i < 10; i++) if (seen[i] != 1) perm = 0;
+            CHECK(perm, "Runde 1: jeder der 10 Titel genau einmal");
+            int seen2[10] = { 0 }; perm = 1;
+            for (int i = 9; i < 19; i++) seen2[seq[i]]++;         /* Runde 2 beginnt mit dem letzten Titel der Runde 1 */
+            for (int i = 0; i < 10; i++) if (seen2[i] != 1) perm = 0;
+            CHECK(perm, "Runde 2: wieder jeder Titel genau einmal");
+            CHECK(seq[10] != seq[9], "Rundenwechsel: derselbe Titel nicht zweimal hintereinander (%d, %d)", seq[9], seq[10]);
+            CHECK(!sequential, "Reihenfolge ist gemischt, nicht die Listenreihenfolge");
+            printf("  Folge:"); for (int i = 0; i < 30; i++) printf(" %d", seq[i]); printf("\n");
+        }
+        CHECK(a_active && !k_active, "Wiedergabe laeuft ueber irm_audio");
+        printf("  -- Zurueck/Direktwahl im Zufallsmodus\n");
+        {
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            const int a = S().index; cmd(IRM_CMD_NEXT, 0); const int b = S().index; cmd(IRM_CMD_NEXT, 0); const int c2 = S().index;
+            CHECK(a != b && b != c2 && a != c2, "Weiter: drei verschiedene Titel (%d %d %d)", a, b, c2);
+            cmd(IRM_CMD_PREV, 0);
+            CHECK(S().index == b, "Zurueck geht in der gemischten Reihenfolge zurueck (#%d)", S().index);
+            cmd(IRM_CMD_PREV, 0);
+            CHECK(S().index == a, "... und noch einen (#%d)", S().index);
+            cmd(IRM_CMD_GOTO, 7);
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 7);
+            int seen[10] = { 0 }, ok = 1; seen[7] = 1;
+            for (int i = 0; i < 9; i++) { cmd(IRM_CMD_NEXT, 0); const int x = S().index; if (seen[x]++) ok = 0; }
+            CHECK(ok, "nach Direktwahl (#7) beginnt eine neue Runde: 9 weitere, alle verschieden");
+        }
+        printf("  -- Zufall + Loop: Loop gewinnt beim Titelende\n");
+        cmd(IRM_CMD_LOOP, 1);
+        { const int cur = S().index; ap = a_plays; audio_evt(IRM_AUDIO_EVT_RUNNING); settle(); audio_evt(IRM_AUDIO_EVT_FINISHED); settle();
+          CHECK(S().index == cur && a_plays == ap + 1, "Titelende: derselbe Titel #%d", cur);
+          cmd(IRM_CMD_NEXT, 0); CHECK(S().index != cur, "Weiter springt trotzdem zu einem anderen Titel (#%d)", S().index); }
+        cmd(IRM_CMD_LOOP, 0);
+        printf("  -- Zufall aus: wieder der Reihe nach, Modus bleibt bei Quellenwechsel\n");
+        cmd(IRM_CMD_SHUFFLE, -1);
+        CHECK(!S().shuffle, "SHUFFLE -1 schaltet um (aus)");
+        { const int cur = S().index; cmd(IRM_CMD_NEXT, 0); CHECK(S().index == (cur + 1) % 10, "Weiter: der Reihe nach (#%d -> #%d)", cur, S().index); }
+        cmd(IRM_CMD_SHUFFLE, 1);
+        cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_RADIO);
+        CHECK(S().shuffle, "Zufall bleibt beim Wechsel zum Radio gesetzt");
+        { const int cur = S().index; cmd(IRM_CMD_NEXT, 0); CHECK(S().index == (cur + 1) % 3, "im Radio wirkt Zufall nicht: Weiter der Reihe nach (#%d -> #%d)", cur, S().index); }
+        cmd(IRM_CMD_SET_SOURCE, IRM_SOURCE_MEDIA); settle();
+        CHECK(S().source == IRM_SOURCE_MEDIA && S().shuffle, "zurueck zu Dateien: Zufall noch an");
+        printf("  -- Zufall: Ordnerwechsel baut neue Reihenfolge, einzelne Datei\n");
+        CHECK(irm_control_play_path("/Rock/a.mp3") == ESP_OK, "Ordner /Rock (3 Titel)"); settle();
+        { int seen[3] = { 0 }, ok = 1; seen[S().index] = 1;
+          for (int i = 0; i < 2; i++) { cmd(IRM_CMD_NEXT, 0); if (seen[S().index]++) ok = 0; }
+          CHECK(ok, "3 Titel, 2x Weiter: alle verschieden"); }
+        CHECK(irm_control_play_path("/top.mp3") == ESP_OK, "einzelne Datei"); settle();
+        ap = a_plays; cmd(IRM_CMD_NEXT, 0);
+        EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
+        CHECK(a_plays == ap + 1, "Zufall mit nur einem Titel: Weiter startet ihn neu, kein Absturz");
+        cmd(IRM_CMD_SHUFFLE, 0);
 
         printf("== Dateibrowser: Listing (irm_control_browse)\n");
         irm_dl_req_t rq; char *js = NULL;

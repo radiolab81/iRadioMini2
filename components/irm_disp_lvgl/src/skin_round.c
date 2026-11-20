@@ -7,7 +7,7 @@
 #define ANGLE_LEFT   100     /* 10,0 Grad: erster Sender */
 #define ANGLE_RIGHT  1900    /* 190,0 Grad: letzter Sender */
 
-static lv_obj_t *s_needle, *s_label;
+static lv_obj_t *s_needle, *s_label, *s_mode;
 static int32_t s_angle = ANGLE_LEFT, s_last_index = -2;
 
 static void set_angle(void *obj, int32_t v) { s_angle = v; lv_image_set_rotation((lv_obj_t *)obj, (int32_t)v); }
@@ -29,10 +29,15 @@ static void create(lv_obj_t *scr)
     lv_obj_set_style_text_color(s_label, lv_color_white(), 0);
     lv_obj_set_style_text_align(s_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_label, LV_ALIGN_BOTTOM_MID, 0, -4);
+
+    s_mode = lv_label_create(scr);                  /* Zufall/Wiederholen (nur Quelle Dateien) */
+    lv_obj_set_style_text_color(s_mode, lv_color_white(), 0);
+    lv_obj_align(s_mode, LV_ALIGN_TOP_RIGHT, -4, 2);
 }
 
 static void update(const irm_status_t *st)
 {
+    lv_label_set_text(s_mode, irm_skin_mode_text(st));
     lv_label_set_text(s_label, (st->index >= 0 && st->name[0]) ? st->name : "");
     if (st->index == s_last_index) return;
     s_last_index = st->index;

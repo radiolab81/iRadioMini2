@@ -4,24 +4,31 @@
 #include "irm_core.h"
 #include "irm_skin.h"
 
-static lv_obj_t *s_num, *s_name, *s_state;
+static lv_obj_t *s_num, *s_name, *s_state, *s_shuf, *s_loop;   /* s_shuf/s_loop: Zufall/Wiederholen, nur in der Quelle Dateien sichtbar */
 
 static void on_btn(lv_event_t *e)
 {
     irm_cmd_post_id((irm_cmd_id_t)(intptr_t)lv_event_get_user_data(e), 0);
 }
 
-static lv_obj_t *button(lv_obj_t *scr, const char *symbol, int x, irm_cmd_id_t cmd)
+static void on_toggle(lv_event_t *e)
+{
+    irm_cmd_post_id((irm_cmd_id_t)(intptr_t)lv_event_get_user_data(e), -1);   /* -1 = umschalten */
+}
+
+static lv_obj_t *button_at(lv_obj_t *scr, const char *symbol, int x, int y, int w, int h, lv_event_cb_t cb, irm_cmd_id_t cmd)
 {
     lv_obj_t *b = lv_button_create(scr);
-    lv_obj_set_pos(b, x, 170);
-    lv_obj_set_size(b, 60, 40);
-    lv_obj_add_event_cb(b, on_btn, LV_EVENT_CLICKED, (void *)(intptr_t)cmd);
+    lv_obj_set_pos(b, x, y);
+    lv_obj_set_size(b, w, h);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void *)(intptr_t)cmd);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, symbol);
     lv_obj_center(l);
     return b;
 }
+
+static lv_obj_t *button(lv_obj_t *scr, const char *symbol, int x, irm_cmd_id_t cmd) { return button_at(scr, symbol, x, 170, 60, 40, on_btn, cmd); }
 
 static void create(lv_obj_t *scr)
 {
@@ -42,6 +49,13 @@ static void create(lv_obj_t *scr)
     button(scr, LV_SYMBOL_PREV, 20, IRM_CMD_PREV);
     button(scr, LV_SYMBOL_PLAY LV_SYMBOL_PAUSE, 130, IRM_CMD_TOGGLE_PAUSE);
     button(scr, LV_SYMBOL_NEXT, 240, IRM_CMD_NEXT);
+    s_shuf = button_at(scr, LV_SYMBOL_SHUFFLE, 240, 8, 60, 34, on_toggle, IRM_CMD_SHUFFLE);   /* aktiv = hervorgehoben (LV_STATE_CHECKED) */
+    s_loop = button_at(scr, LV_SYMBOL_LOOP, 170, 8, 60, 34, on_toggle, IRM_CMD_LOOP);
+}
+
+static void set_checked(lv_obj_t *b, bool on)
+{
+    if (on) lv_obj_add_state(b, LV_STATE_CHECKED); else lv_obj_remove_state(b, LV_STATE_CHECKED);
 }
 
 static void update(const irm_status_t *st)
@@ -52,6 +66,13 @@ static void update(const irm_status_t *st)
     lv_label_set_text(s_num, n);
     lv_label_set_text(s_name, st->name[0] ? st->name : "-");
     lv_label_set_text(s_state, ps[st->player <= IRM_PLAYER_ERROR ? st->player : 0]);
+    const bool media = st->source == IRM_SOURCE_MEDIA;
+    lv_obj_t *const tog[] = { s_shuf, s_loop };
+    for (size_t i = 0; i < 2; i++) {
+        if (media) lv_obj_remove_flag(tog[i], LV_OBJ_FLAG_HIDDEN); else lv_obj_add_flag(tog[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    set_checked(s_shuf, st->shuffle);
+    set_checked(s_loop, st->loop);
 }
 
 const irm_skin_t irm_skin_active = { "basic", create, update };
