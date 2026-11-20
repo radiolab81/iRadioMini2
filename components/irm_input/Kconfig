@@ -16,6 +16,14 @@ menu "iRadioMini2: Eingabe"
         int "Taster Aufnahme (Radio/KiwiSDR -> SD-Karte, Taster = Start/Stopp)"
         default -1
         range -1 39
+    config IRM_BTN_SHUFFLE
+        int "Taster Zufallswiedergabe (Mediaplayer, Taster = an/aus)"
+        default -1
+        range -1 39
+    config IRM_BTN_LOOP
+        int "Taster Titel wiederholen (Mediaplayer, Taster = an/aus)"
+        default -1
+        range -1 39
     config IRM_BTN_VOL_UP
         int "Taster Lauter (haltbar = Wiederholung)"
         default -1

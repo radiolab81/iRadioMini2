@@ -15,6 +15,7 @@ static const char *TAG = "irm_input";
 typedef struct {
     int gpio;
     irm_cmd_id_t short_cmd, long_cmd;
+    int32_t value;                  /* Wert des Kurzbefehls (Standard 0; -1 = umschalten bei IRM_CMD_SHUFFLE/IRM_CMD_LOOP) */
     bool repeat;                    /* Kurzbefehl bei gehaltener Taste wiederholen */
     /* Laufzeit */
     bool stable_down; uint8_t cnt; bool long_fired; uint32_t held_ms, since_rep_ms;
@@ -25,6 +26,8 @@ static button_t s_btn[] = {
     { .gpio = CONFIG_IRM_BTN_NEXT,     .short_cmd = IRM_CMD_NEXT },
     { .gpio = CONFIG_IRM_BTN_PREV,     .short_cmd = IRM_CMD_PREV },
     { .gpio = CONFIG_IRM_BTN_REC,      .short_cmd = IRM_CMD_REC_TOGGLE },
+    { .gpio = CONFIG_IRM_BTN_SHUFFLE,  .short_cmd = IRM_CMD_SHUFFLE, .value = -1 },   /* wirkt nur in der Quelle Dateien */
+    { .gpio = CONFIG_IRM_BTN_LOOP,     .short_cmd = IRM_CMD_LOOP,    .value = -1 },
     { .gpio = CONFIG_IRM_BTN_VOL_UP,   .short_cmd = IRM_CMD_VOLUME_UP,   .repeat = true },
     { .gpio = CONFIG_IRM_BTN_VOL_DOWN, .short_cmd = IRM_CMD_VOLUME_DOWN, .repeat = true },
 };
@@ -41,13 +44,13 @@ static void step_button(button_t *b)
     else if (++b->cnt >= DEBOUNCE_TICKS) {
         b->stable_down = down; b->cnt = 0;
         if (down) { b->held_ms = 0; b->since_rep_ms = 0; b->long_fired = false; }
-        else if (!b->long_fired && !b->repeat) irm_cmd_post_id(b->short_cmd, 0);   /* Kurz: beim Loslassen */
+        else if (!b->long_fired && !b->repeat) irm_cmd_post_id(b->short_cmd, b->value);   /* Kurz: beim Loslassen */
     }
     if (b->stable_down) {
         b->held_ms += TICK_MS;
         if (b->repeat) {
             if (b->held_ms == TICK_MS || (b->held_ms > CONFIG_IRM_BTN_LONG_MS / 2 && (b->since_rep_ms += TICK_MS) >= CONFIG_IRM_BTN_REPEAT_MS)) {
-                irm_cmd_post_id(b->short_cmd, 0);
+                irm_cmd_post_id(b->short_cmd, b->value);
                 b->since_rep_ms = 0;
             }
         } else if (b->long_cmd && !b->long_fired && b->held_ms >= CONFIG_IRM_BTN_LONG_MS) {

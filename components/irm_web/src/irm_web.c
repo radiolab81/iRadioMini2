@@ -92,6 +92,8 @@ static esp_err_t h_status(httpd_req_t *req)
     cJSON_AddNumberToObject(j, "count", s.count);
     cJSON_AddNumberToObject(j, "volume", s.volume);
     cJSON_AddStringToObject(j, "name", s.name);
+    cJSON_AddBoolToObject(j, "shuffle", s.shuffle);   /* Mediaplayer: Zufallswiedergabe / aktuellen Titel wiederholen (wirken nur in der Quelle Dateien) */
+    cJSON_AddBoolToObject(j, "loop", s.loop);
     cJSON_AddBoolToObject(j, "net", s.net_up);
     cJSON_AddNumberToObject(j, "sample_rate", s.sample_rate);
     cJSON_AddNumberToObject(j, "bitrate", s.bitrate);
@@ -164,6 +166,8 @@ static const struct { const char *name; irm_cmd_id_t id; } k_cmds[] = {
     { "rec_stop",   IRM_CMD_REC_STOP },
     { "rec_toggle", IRM_CMD_REC_TOGGLE },
     { "media_all", IRM_CMD_MEDIA_ALL },   /* Quelle Dateien: ganze SD-Karte rekursiv als Playlist */
+    { "shuffle",   IRM_CMD_SHUFFLE },     /* Quelle Dateien: Zufallswiedergabe im aktuellen Ordner; value 1 an, 0 aus, ohne value umschalten */
+    { "loop",      IRM_CMD_LOOP },        /* Quelle Dateien: laufenden Titel wiederholen; value wie bei shuffle */
     { "kiwi_fav",  IRM_CMD_KIWI_FAVORITE },   /* aktuellen Kiwi-Eintrag samt Frequenz in kiwi.m3u speichern; optional "name":"..." */
     { "kiwi_del",  IRM_CMD_KIWI_DELETE },     /* value = Listenindex eines Favoriten: aus kiwi.m3u entfernen */
 };
@@ -185,6 +189,7 @@ static esp_err_t h_cmd(httpd_req_t *req)
                     val = irm_kiwi_mode_index(mo->valuestring);
                     if (val < 0) { cJSON_Delete(j); return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unbekannter Modus"); }
                 }
+                if ((k_cmds[i].id == IRM_CMD_SHUFFLE || k_cmds[i].id == IRM_CMD_LOOP) && !cJSON_IsNumber(v)) val = cJSON_IsBool(v) ? (cJSON_IsTrue(v) ? 1 : 0) : -1;   /* true/false oder ohne Angabe: umschalten */
                 if (k_cmds[i].id == IRM_CMD_KIWI_TUNE && (!cJSON_IsNumber(v) || v->valuedouble < 1 || v->valuedouble > 2e9)) {
                     cJSON_Delete(j);
                     return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kiwi_tune: value = Frequenz in Hz");

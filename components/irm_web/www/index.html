@@ -232,6 +232,12 @@
   .fb li.up {
     color: var(--mut);
   }
+  /* Mediaplayer-Schalter (Zufall, Wiederholen): eingeschaltet = Akzentfarbe */
+  button.tog[aria-pressed="true"] {
+    background: var(--ac);
+    border-color: var(--ac);
+    color: var(--bg);
+  }
 
   /* ---- Equalizer ---- */
   .eq-title {
@@ -326,6 +332,8 @@
   <div class="crumbs" id="crumbs"></div>
   <div class="row">
     <button onclick="allTitles()" title="Gesamte SD-Karte rekursiv als Wiedergabeliste">Alle Titel</button>
+    <button id="fshuf" class="tog" aria-pressed="false" onclick="toggleMode('shuffle')" title="Zufallswiedergabe: die Titel der Wiedergabeliste (aktueller Ordner) in zufälliger Reihenfolge">🔀 Zufall</button>
+    <button id="floop" class="tog" aria-pressed="false" onclick="toggleMode('loop')" title="Den laufenden Titel immer wieder abspielen (Weiter/Zurück springen trotzdem)">🔁 Titel wiederholen</button>
     <span class="mut" id="fmsg"></span>
   </div>
   <ul id="flist"></ul>
@@ -602,6 +610,8 @@ function media(s) {
   if (!m) { B.init = false; return; }
   B.cur = s.path || '';
   $('fcount').textContent = s.count + ' Titel in der Wiedergabeliste';
+  for (const [id, k] of [['fshuf', 'shuffle'], ['floop', 'loop']]) $(id).setAttribute('aria-pressed', s[k] ? 'true' : 'false');
+  M.shuffle = !!s.shuffle; M.loop = !!s.loop;
   if (!B.init) {
     B.init = true;
     go(dirname(B.cur));
@@ -702,6 +712,14 @@ async function playFile(p) {
   }
   $('fmsg').textContent = r.ok ? '' : 'Datei kann nicht abgespielt werden';
   if (r.ok) setTimeout(poll, 500);
+}
+
+// Zufall/Wiederholen: gewünschten Zustand explizit senden (kein blindes Umschalten, falls zwischendurch jemand anderes umgestellt hat)
+const M = { shuffle: false, loop: false };
+function toggleMode(k) {
+  M[k] = !M[k];
+  $(k === 'shuffle' ? 'fshuf' : 'floop').setAttribute('aria-pressed', M[k] ? 'true' : 'false');
+  c(k, M[k] ? 1 : 0);
 }
 
 function allTitles() {

@@ -9,7 +9,7 @@
     '/Rock/Live': [{ n: 'l1.mp3' }],
     '/Big': big, '/leer': [],
   };
-  const srv = { source: 'radio', path: '', count: 3, index: 0, posts: [], gets: [], playFail: false, net: { peer: '', port: 4010, rate: 48000, underruns: 0 } };
+  const srv = { shuffle: false, loop: false, source: 'radio', path: '', count: 3, index: 0, posts: [], gets: [], playFail: false, net: { peer: '', port: 4010, rate: 48000, underruns: 0 } };
   window.__srv = srv;
   const reply = (o, status = 200) => Promise.resolve({ ok: status < 300, status, json: async () => o });
   window.fetch = (url, opt) => {
@@ -20,7 +20,7 @@
       return reply({ ok: true });
     }
     srv.gets.push(u.pathname + u.search);
-    if (p === '/api/status') return reply(Object.assign({ net: true, player: 'playing', name: 'T', source: srv.source, volume: 30, index: srv.index, count: srv.count, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }, srv.source === 'media' && srv.path ? { path: srv.path } : {}, srv.source === 'net' ? { net: srv.net } : {}));
+    if (p === '/api/status') return reply(Object.assign({ net: true, player: 'playing', name: 'T', source: srv.source, volume: 30, index: srv.index, count: srv.count, eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], shuffle: srv.shuffle, loop: srv.loop }, srv.source === 'media' && srv.path ? { path: srv.path } : {}, srv.source === 'net' ? { net: srv.net } : {}));
     if (p === '/api/list') return reply(['A', 'B', 'C']);
     if (p === '/api/files') {
       const path = u.searchParams.get('path'), lim = +u.searchParams.get('limit') || 30, after = u.searchParams.get('after');
@@ -89,6 +89,18 @@
 
     srv.posts.length = 0; document.querySelector('#fb .row button').click(); await sleep(450);
     check(srv.posts.some(x => x.p === '/api/cmd' && x.body.cmd === 'media_all'), 'Alle Titel: POST /api/cmd media_all');
+
+    check($('fshuf').getAttribute('aria-pressed') === 'false' && $('floop').getAttribute('aria-pressed') === 'false', 'Zufall/Wiederholen: anfangs aus');
+    $('fshuf').click(); await sleep(50);
+    check(srv.posts.some(x => x.p === '/api/cmd' && x.body.cmd === 'shuffle' && x.body.value === 1) && $('fshuf').getAttribute('aria-pressed') === 'true', 'Zufall-Knopf: POST shuffle value 1, Knopf sofort an');
+    $('floop').click(); await sleep(50);
+    check(srv.posts.some(x => x.p === '/api/cmd' && x.body.cmd === 'loop' && x.body.value === 1), 'Wiederholen-Knopf: POST loop value 1');
+    srv.shuffle = true; srv.loop = true; await window.poll(); await sleep(50);
+    check($('fshuf').getAttribute('aria-pressed') === 'true' && $('floop').getAttribute('aria-pressed') === 'true', 'Status shuffle/loop -> beide Knoepfe an');
+    $('fshuf').click(); await sleep(50);
+    check(srv.posts.filter(x => x.body.cmd === 'shuffle').pop().body.value === 0, 'erneuter Klick sendet value 0 (aus)');
+    srv.shuffle = false; srv.loop = false; await window.poll(); await sleep(50);
+    check($('fshuf').getAttribute('aria-pressed') === 'false' && $('floop').getAttribute('aria-pressed') === 'false', 'Status aus -> Knoepfe aus (Aenderung von anderer Stelle wird uebernommen)');
 
     go('/Rock/Live'); await sleep(100);
     srv.path = '/Rock/Live/l1.mp3'; await window.poll(); await sleep(50);
