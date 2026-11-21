@@ -35,22 +35,29 @@ Kconfig: Board (AudioKit/eigenes), Codec (ES8388/ES8311/Dummy), Pins, Ausgaberat
 `irm_audio_init(codec, sink, …)/play/stop/pause/resume/set_volume/set_eq` auf Basis von ESP-GMF. Ausgabe: Codec-IO oder eigenes Sink-IO (`irm_io_sink`). Ereignisse (`IRM_AUDIO_EVT_*`) per Callback.
 
 ## irm_control
-Zustandsautomat/Controller (einzige Task, die Audio steuert): Quellenwahl (Radio/Medien/KiwiSDR, reihum), Playlist-Navigation, Retry-Backoff,
+Zustandsautomat/Controller (einzige Task, die Audio steuert): Quellenwahl (Radio/Dateien/KiwiSDR/Netzwerk, reihum), Playlist-Navigation, Mediaplayer-Modi Zufall (gemischte Reihenfolge im aktuellen Ordner) und Titel wiederholen (`IRM_CMD_SHUFFLE/LOOP`), Aufnahme-Steuerung, Retry-Backoff,
 verzögertes Persistieren; `irm_control_item_count/irm_control_item` für Listenzugriff (z. B. Web).
+
+## irm_rec
+Aufnahme (Radio, KiwiSDR) als unkomprimiertes WAV auf die SD-Karte, siehe [RECORDING.md](RECORDING.md). `irm_rec_init(sink)` hängt sich in die Ausgabesenke ein, `irm_rec_start(src)/stop/active/info`; KiwiSDR speist über `irm_rec_feed_kiwi` (Abgriff per `irm_kiwi_set_tap`). Ringpuffer + Schreib-Task, der Audio-Pfad blockiert nie. Start/Stopp kommen aus `irm_control` (`IRM_CMD_REC_*`). Dateien und Netzwerk sind nicht aufnehmbar.
 
 ## irm_kiwi (+ kiwi_core)
 KiwiSDR-Quelle, siehe [KIWI.md](KIWI.md). `irm_kiwi_init(sink, cb, ctx)/play(uri, reset_tune)/stop/tune/tune_step/set_mode_index`; Ereignisse `IRM_KIWI_EVT_INFO/RUNNING/ERROR`.
 Frequenz/Modus/Feldstärke stehen in `irm_status_t.kiwi_*`. `irm_formats/irm_kiwi_uri.h` (URI-Parser, Modus-Tabelle) und `irm_out/irm_resamp.h` (Resampler + Drift-Regler) sind reines C.
 
+## irm_dir (+ kiwi_dir)
+KiwiSDR-Serververzeichnis, siehe [KIWI.md](KIWI.md#serververzeichnis-suchen-und-auswählen-im-web-ui). `kiwi_dir` (portabel, aus ESP32_KiwiSDR; `kiwi_dir_cmd.c`, die Konsole, gehört nicht zum Build) liefert Parser, Datenbank, Geo-Hilfen und HTTP-Abruf. `irm_dir` ergänzt Flash-Partition, Update-Task und Zustand: `irm_dir_init/db/get/info/update(force)`, aus jedem Task nutzbar, auch während eines Updates. `irm_dir_query.h` (Suche/Blättern) ist reines C und host-testbar; das Web-UI nutzt es für die Serverliste.
+
 ## irm_input
 Taster (Play/Pause kurz, Quellenwechsel lang; Weiter; Zurück; Lauter/Leiser mit Wiederholung; optional Aufnahme, Zufall und Titel wiederholen im Mediaplayer: `IRM_BTN_REC`/`IRM_BTN_SHUFFLE`/`IRM_BTN_LOOP`, Standard aus) und PCNT-Drehgeber (Lautstärke oder Sender).
 
 ## irm_display + Backends
+Anzeige: in der Quelle Dateien zeigen die Text-Backends `Z`/`L` für Zufall/Wiederholen, LVGL-Skin *basic* hat dafür Touch-Tasten.
 `irm_display_start(&backend)`; Backends: `irm_disp_ssd1306` (u8g2), `irm_disp_hd44780` (PCF8574), `irm_disp_servo` (LEDC),
 `irm_disp_lvgl` (siehe `docs/LVGL.md`). Textaufbereitung `irm_view_*`.
 
 ## irm_web
-REST-API + Web-UI (siehe README). Optional HTTP-Basic-Auth (`IRM_WEB_PASSWORD`).
+REST-API + Web-UI (siehe README). Optional HTTP-Basic-Auth (`IRM_WEB_PASSWORD`). Kommandos u. a. `shuffle`/`loop` (Mediaplayer, `value` 1/0, ohne Wert umschalten), `rec_toggle`, `kiwi_*`; Status enthält `shuffle`/`loop`.
 
 **Dateibrowser (Quelle „Dateien“):** Das Web-UI zeigt im Modus Dateien statt der flachen Liste einen Ordnerbaum der SD-Karte (Breadcrumb, „‥“, Ordner/Dateien antippbar, laufende Datei hervorgehoben, Seiten mit ‹ ›). Ein Klick auf eine Datei startet sie; die Wiedergabeliste besteht dann aus den Dateien **dieses Ordners** (alphabetisch, nicht rekursiv), „Weiter/Zurück“ und das Titelende folgen darin – auch an Gerätetasten und Display. **Alle Titel** stellt die bisherige rekursive Liste der ganzen SD-Karte wieder her (das ist auch die Liste beim Wechsel zur Quelle Dateien). Pfade sind relativ zur SD-Wurzel; `..`, `\\` und Steuerzeichen werden abgelehnt (`irm_path_normalize`), Namen ab 100 Bytes und versteckte Einträge (`.xyz`) erscheinen nicht, es werden nur Dateien mit den Endungen aus `IRM_MEDIA_EXTENSIONS` gezeigt. Ordner mit mehr als `IRM_MAX_MEDIA_FILES` Dateien: die Datei spielt dann allein, solange sie nicht unter den ersten `IRM_MAX_MEDIA_FILES` (alphabetisch) liegt.
 
