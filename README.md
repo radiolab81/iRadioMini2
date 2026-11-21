@@ -40,6 +40,7 @@ Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setze
 | `irm_out` | Ausgabesenken PDM/interner DAC + PCM-Helfer (Software-Lautstärke, Downmix, 8-Bit-Dither, Resampler mit Drift-Regelung) | esp_driver_i2s/dac |
 | `irm_net` | WLAN-STA mit Reconnect-Backoff | irm_core |
 | `irm_audio` | ESP-GMF-Pipeline (HTTP/Datei → Decoder → Resampler → EQ → Codec) | gmf_*, esp_codec_dev |
+| `irm_netin` | **Netzwerk-Eingang** (vierte Quelle): rohes PCM per UDP/TCP aus dem eigenen Subnetz, Jitterpuffer + Resampler → Ausgabesenke ([Doku](docs/NETIN.md)) | irm_out |
 | `irm_kiwi` | **KiwiSDR-Quelle**: Netz-Task, Jitterpuffer, Resampler → Ausgabesenke ([Doku](docs/KIWI.md)) | kiwi_core, irm_out |
 | `kiwi_core` | portabler KiwiSDR-Client (WebSocket, PCM/ADPCM), unverändert aus ESP32_KiwiSDR | lwip |
 | `irm_dir` | **Serververzeichnis**: Suche/Blättern (reines C) + Flash-Datenbank, Update-Task ([Doku](docs/KIWI.md#serververzeichnis-suchen-und-auswählen-im-web-ui)) | kiwi_dir, esp_partition |
@@ -51,7 +52,7 @@ Bei Auslieferung ist **keine** Authentifizierung aktiv: `IRM_WEB_PASSWORD` setze
 | `irm_web` | REST-API + eingebettete Web-UI | esp_http_server, cjson |
 | `irm_tx` | optionaler AM-Träger (AD9835/AD9832/AD9850/LEDC) + inet2RF-Senderwahl | irm_core |
 
-Dokumentation: [Architektur](docs/ARCHITECTURE.md) · [Komponenten-Referenz](docs/COMPONENTS.md) · [KiwiSDR](docs/KIWI.md) · [LVGL-Anzeige](docs/LVGL.md) · [AM-Sender/inet2RF](docs/RF-TX.md) · [Migration vom Altprojekt](docs/MIGRATION.md) · 
+Dokumentation: [Architektur](docs/ARCHITECTURE.md) · [Komponenten-Referenz](docs/COMPONENTS.md) · [KiwiSDR](docs/KIWI.md) · [LVGL-Anzeige](docs/LVGL.md) · [AM-Sender/inet2RF](docs/RF-TX.md) · [Netzwerk-Eingang](docs/NETIN.md) · [Aufnahme](docs/RECORDING.md) · [Migration vom Altprojekt](docs/MIGRATION.md) 
 
 
 ## Audio-Ausgabe (auch ohne externen DAC)
