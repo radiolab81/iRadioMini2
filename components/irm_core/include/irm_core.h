@@ -31,6 +31,8 @@ typedef enum {
     IRM_CMD_MEDIA_PLAY_PATH,/* Datei abspielen; Pfad liegt in irm_control (siehe irm_control_play_path), Playlist = Dateien des Ordners */
     IRM_CMD_SHUFFLE,        /* Quelle Dateien: Zufallswiedergabe der Titel im aktuellen Ordner; value = 1 an, 0 aus, < 0 umschalten */
     IRM_CMD_LOOP,           /* Quelle Dateien: laufenden Titel endlos wiederholen (Weiter/Zurueck springen trotzdem); value = 1 an, 0 aus, < 0 umschalten */
+    IRM_CMD_MEDIA_DELETE,   /* Datei loeschen / umbenennen (Web-UI): Parameter stehen in irm_control; nur ueber irm_control_file_delete/_rename ausloesen */
+    IRM_CMD_MEDIA_RENAME,
     IRM_CMD_REC_START,      /* Aufnahme der aktuellen Quelle (Radio/KiwiSDR) auf SD starten; aus Pause/Stopp startet auch die Wiedergabe */
     IRM_CMD_REC_STOP,
     IRM_CMD_REC_TOGGLE,

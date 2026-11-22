@@ -131,6 +131,31 @@ int main(void)
     char u[] = "ok \xc3\xa4\xe2\x82\xac\xf0\x9f\x8e\xb5 \xc0\xaf \xed\xa0\x80 \xf4\x90\x80\x80"; irm_dirlist_utf8_clean(u);
     CHECK(strncmp(u, "ok \xc3\xa4\xe2\x82\xac\xf0\x9f\x8e\xb5 ", 12) == 0 && !strchr(u + 12, '\xc0') && !strchr(u + 12, '\xed'), "UTF-8: gueltige Zeichen bleiben, Overlong/Surrogate/>U+10FFFF -> '?'");
 
+    printf("== irm_filename_valid / irm_playlist_set\n");
+    const char *E = "mp3,aac,m4a,wav,flac";
+    CHECK(irm_filename_valid("Neuer Titel.mp3", E) && irm_filename_valid("2026-11-22_13-00-00 Interview.WAV", E), "normale Namen (auch Gross-Endung, Leerzeichen)");
+    CHECK(irm_filename_valid("K\xc3\xbcnstler \xe2\x80\x93 \xc3\x84rger.flac", E), "UTF-8-Namen");
+    CHECK(!irm_filename_valid("", E) && !irm_filename_valid(NULL, E), "leer/NULL abgelehnt");
+    CHECK(!irm_filename_valid("a/b.mp3", E) && !irm_filename_valid("..", E) && !irm_filename_valid("../x.mp3", E) && !irm_filename_valid("a\\b.mp3", E), "Pfadtrenner und .. abgelehnt");
+    CHECK(!irm_filename_valid("a:b.mp3", E) && !irm_filename_valid("a*b.mp3", E) && !irm_filename_valid("a?b.mp3", E) && !irm_filename_valid("a\"b.mp3", E) && !irm_filename_valid("a<b>.mp3", E) && !irm_filename_valid("a|b.mp3", E), "FAT-verbotene Zeichen abgelehnt");
+    CHECK(!irm_filename_valid(".versteckt.mp3", E) && !irm_filename_valid("x.mp3.", E) && !irm_filename_valid("x.mp3 ", E), "fuehrender Punkt / endender Punkt oder Leerzeichen abgelehnt");
+    CHECK(!irm_filename_valid("a\tb.mp3", E) && !irm_filename_valid("a\nb.mp3", E) && !irm_filename_valid("a\x7f.mp3", E), "Steuerzeichen abgelehnt");
+    CHECK(!irm_filename_valid("a\xc0\xaf.mp3", E) && !irm_filename_valid("a\xed\xa0\x80.mp3", E), "ungueltiges UTF-8 abgelehnt");
+    CHECK(!irm_filename_valid("notiz.txt", E) && !irm_filename_valid("ohneendung", E) && !irm_filename_valid("x.mp3.exe", E), "nur Mediaendungen");
+    { char big[IRM_DL_NAME_MAX + 8]; memset(big, 'a', sizeof big); memcpy(big + IRM_DL_NAME_MAX - 5, ".mp3", 5);
+      CHECK(irm_filename_valid(big + 0, E) == true, "Name mit genau IRM_DL_NAME_MAX-1 Bytes ok");
+      memset(big, 'a', sizeof big); memcpy(big + IRM_DL_NAME_MAX - 4, ".mp3", 5);
+      CHECK(!irm_filename_valid(big, E), "Name mit IRM_DL_NAME_MAX Bytes abgelehnt"); }
+    {
+        irm_playlist_t *pl = irm_playlist_new(4);
+        irm_playlist_add(pl, "/sdcard/a.mp3", "a.mp3"); irm_playlist_add(pl, "/sdcard/b.mp3", "b.mp3");
+        CHECK(irm_playlist_set(pl, 1, "/sdcard/neu.mp3", "neu.mp3") && !strcmp(irm_playlist_uri(pl, 1), "/sdcard/neu.mp3") && !strcmp(irm_playlist_name(pl, 1), "neu.mp3")
+              && !strcmp(irm_playlist_uri(pl, 0), "/sdcard/a.mp3") && irm_playlist_count(pl) == 2, "irm_playlist_set ersetzt URI und Name, Rest unveraendert");
+        CHECK(!irm_playlist_set(pl, 2, "/x", NULL) && !irm_playlist_set(pl, 0, "", NULL) && !irm_playlist_set(pl, 0, NULL, NULL), "irm_playlist_set: ungueltiger Index / leere URI abgelehnt");
+        CHECK(!strcmp(irm_playlist_uri(pl, 0), "/sdcard/a.mp3"), "... Eintrag bleibt dabei unveraendert");
+        irm_playlist_free(pl);
+    }
+
     char cmd[300]; snprintf(cmd, sizeof cmd, "rm -rf %s", root); if (system(cmd)) {}
     printf("== Ergebnis: %s\n", fails ? "FEHLER" : "OK");
     return fails ? 1 : 0;

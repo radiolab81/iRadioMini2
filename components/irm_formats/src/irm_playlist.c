@@ -50,6 +50,16 @@ bool irm_playlist_add(irm_playlist_t *pl, const char *uri, const char *name)
     return true;
 }
 
+bool irm_playlist_set(irm_playlist_t *pl, size_t idx, const char *uri, const char *name)
+{
+    if (!pl || idx >= pl->count || !uri || !*uri || strlen(uri) > IRM_PLAYLIST_URI_MAX) return false;
+    item_t *it = &pl->items[idx];
+    memcpy(it->uri, uri, strlen(uri) + 1);
+    it->name[0] = 0;
+    if (name) { strncpy(it->name, name, IRM_PLAYLIST_NAME_MAX); it->name[IRM_PLAYLIST_NAME_MAX] = 0; }
+    return true;
+}
+
 bool irm_playlist_remove(irm_playlist_t *pl, size_t idx)
 {
     if (!pl || idx >= pl->count) return false;

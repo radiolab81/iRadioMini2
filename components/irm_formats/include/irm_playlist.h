@@ -24,6 +24,9 @@ const char *irm_playlist_name(const irm_playlist_t *pl, size_t idx);
 /** Eintrag anhaengen. Leere/zu lange URIs werden abgelehnt. name darf NULL sein. */
 bool irm_playlist_add(irm_playlist_t *pl, const char *uri, const char *name);
 
+/** URI und Name des Eintrags idx ersetzen (z. B. nach Umbenennen einer Datei). name darf NULL sein. false bei ungueltigem Index oder leerer/zu langer URI (Eintrag bleibt dann unveraendert). */
+bool irm_playlist_set(irm_playlist_t *pl, size_t idx, const char *uri, const char *name);
+
 /** Eintrag idx entfernen; die folgenden Eintraege ruecken nach. false bei ungueltigem Index. */
 bool irm_playlist_remove(irm_playlist_t *pl, size_t idx);
 

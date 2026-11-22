@@ -12,3 +12,4 @@
 #define CONFIG_IRM_DIR_DEFAULT_MODE "am"
 #define CONFIG_IRM_NETIN_ENABLE 1
 #define CONFIG_IRM_REC_ENABLE 1
+#define CONFIG_IRM_REC_DIR "recordings"

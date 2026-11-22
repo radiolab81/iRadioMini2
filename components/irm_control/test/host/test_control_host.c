@@ -73,12 +73,12 @@ esp_err_t irm_kiwi_init(irm_out_sink_t *s, irm_kiwi_cb_t cb, void *x) { (void)s;
 esp_err_t irm_kiwi_play(const char *u, bool reset) { if (a_active || n_active) { violations++; printf("  FEHLER: irm_kiwi_play bei aktiver Audio-Pipeline/Netzwerk-Eingang\n"); } k_active = 1; k_plays++; strcpy(k_uri, u); k_reset = reset; return ESP_OK; }
 esp_err_t irm_kiwi_stop(void) { k_active = 0; k_stops++; return ESP_OK; }
 /* Fake-Recorder: merkt Zustand und Quelle wie das echte irm_rec (das eigene Host-Test hat: irm_rec/test/host) */
-static int rc_active, rc_src = -1, rc_starts, rc_stops, rc_tap_set;
+static int rc_active, rc_src = -1, rc_starts, rc_stops, rc_tap_set; static char rc_file[48];
 esp_err_t irm_rec_init(irm_out_sink_t *s) { (void)s; return ESP_OK; }
 esp_err_t irm_rec_start(irm_source_t src) { if (src != IRM_SOURCE_RADIO && src != IRM_SOURCE_KIWI) return ESP_ERR_NOT_SUPPORTED; if (rc_active) return ESP_ERR_INVALID_STATE; rc_active = 1; rc_src = src; rc_starts++; return ESP_OK; }
 esp_err_t irm_rec_stop(void) { if (rc_active) rc_stops++; rc_active = 0; return ESP_OK; }
 bool irm_rec_active(void) { return rc_active; }
-void irm_rec_info(irm_rec_info_t *o) { memset(o, 0, sizeof(*o)); o->active = rc_active; o->source = (irm_source_t)rc_src; }
+void irm_rec_info(irm_rec_info_t *o) { memset(o, 0, sizeof(*o)); o->active = rc_active; o->source = (irm_source_t)rc_src; strcpy(o->file, rc_file); }
 void irm_rec_feed_kiwi(const int16_t *m, size_t n, uint32_t r) { (void)m; (void)n; (void)r; }
 void irm_kiwi_set_tap(irm_kiwi_tap_t fn) { rc_tap_set = fn != NULL; }
 static irm_netin_cb_t n_cb;
@@ -635,6 +635,119 @@ int main(void)
         EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
         CHECK(a_plays == ap + 1, "Zufall mit nur einem Titel: Weiter startet ihn neu, kein Absturz");
         cmd(IRM_CMD_SHUFFLE, 0);
+
+        printf("== Dateien loeschen / umbenennen\n");
+        {
+            char p[320], d[320];
+            snprintf(d, sizeof d, "%s/Edit", IRM_SD_MOUNT_POINT); mkdir(d, 0755);
+            const char *fn[] = { "e1.mp3", "e2.mp3", "e3.mp3", "x.txt" };
+            for (int i = 0; i < 4; i++) { snprintf(p, sizeof p, "%s/%s", d, fn[i]); FILE *f = fopen(p, "w"); if (f) { fputs("x", f); fclose(f); } }
+            struct stat sb;
+#define EXISTS(rel) (snprintf(p, sizeof p, "%s%s", IRM_SD_MOUNT_POINT, rel), stat(p, &sb) == 0)
+            char nm[64], ur[256];
+
+            CHECK(irm_control_play_path("/Edit/e1.mp3") == ESP_OK, "Ordner /Edit (3 Titel), e1 laeuft"); settle();
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_PLAYING, 0);
+            CHECK(S().count == 3, "3 Titel in der Liste");
+
+            printf("  -- Fehlerfaelle\n");
+            CHECK(irm_control_file_delete("/Edit/nope.mp3") == ESP_ERR_NOT_FOUND, "unbekannte Datei: NOT_FOUND");
+            CHECK(irm_control_file_delete("/Edit/x.txt") == ESP_ERR_NOT_FOUND && EXISTS("/Edit/x.txt"), "Datei ohne Mediaendung wird nicht angefasst");
+            CHECK(irm_control_file_delete("/Edit") == ESP_ERR_NOT_FOUND && EXISTS("/Edit"), "Ordner werden nicht geloescht");
+            CHECK(irm_control_file_delete("/Edit/../Edit/e2.mp3") == ESP_ERR_INVALID_ARG && irm_control_file_delete("Edit/e2.mp3") == ESP_ERR_INVALID_ARG && irm_control_file_delete("/") == ESP_ERR_INVALID_ARG && irm_control_file_delete(NULL) == ESP_ERR_INVALID_ARG, "Pfad mit .. / ohne fuehrenden / / Wurzel / NULL: INVALID_ARG");
+            CHECK(irm_control_file_rename("/Edit/e2.mp3", "x/y.mp3") == ESP_ERR_INVALID_ARG && irm_control_file_rename("/Edit/e2.mp3", "e2.txt") == ESP_ERR_INVALID_ARG
+                  && irm_control_file_rename("/Edit/e2.mp3", "") == ESP_ERR_INVALID_ARG && irm_control_file_rename("/Edit/e2.mp3", ".hid.mp3") == ESP_ERR_INVALID_ARG
+                  && irm_control_file_rename("/Edit/e2.mp3", NULL) == ESP_ERR_INVALID_ARG && irm_control_file_rename("/Edit/e2.mp3", "a:b.mp3") == ESP_ERR_INVALID_ARG && EXISTS("/Edit/e2.mp3"), "ungueltige neue Namen: INVALID_ARG, Datei unveraendert");
+            CHECK(irm_control_file_rename("/Edit/e2.mp3", "e3.mp3") == ESP_ERR_INVALID_STATE && EXISTS("/Edit/e2.mp3") && EXISTS("/Edit/e3.mp3"), "Zielname existiert: INVALID_STATE, nichts ueberschrieben");
+            CHECK(irm_control_file_rename("/Edit/nope.mp3", "n.mp3") == ESP_ERR_NOT_FOUND, "umbenennen unbekannter Datei: NOT_FOUND");
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_PLAYING, 0);
+
+            printf("  -- Umbenennen einer nicht laufenden Datei\n");
+            ap = a_plays;
+            CHECK(irm_control_file_rename("/Edit/e2.mp3", "Zweiter Titel.mp3") == ESP_OK, "e2 -> \"Zweiter Titel.mp3\"");
+            CHECK(!EXISTS("/Edit/e2.mp3") && EXISTS("/Edit/Zweiter Titel.mp3"), "Datei auf der Karte umbenannt");
+            irm_control_item(IRM_SOURCE_MEDIA, 1, nm, sizeof nm, ur, sizeof ur);
+            CHECK(!strcmp(nm, "Zweiter Titel.mp3") && strstr(ur, "/Edit/Zweiter Titel.mp3"), "Playlist: Eintrag #1 zeigt den neuen Namen (%s)", nm);
+            CHECK(a_plays == ap && S().player == IRM_PLAYER_PLAYING && S().index == 0 && S().count == 3, "laufender Titel e1 unberuehrt (kein Neustart)");
+
+            printf("  -- Loeschen einer nicht laufenden Datei (vor dem laufenden Titel)\n");
+            CHECK(irm_control_file_delete("/Edit/e3.mp3") == ESP_OK && !EXISTS("/Edit/e3.mp3"), "e3 geloescht");
+            CHECK(S().count == 2 && S().index == 0 && S().player == IRM_PLAYER_PLAYING && a_plays == ap, "Liste 2 Titel, e1 laeuft unveraendert weiter");
+            CHECK(irm_control_play_path("/Edit/Zweiter Titel.mp3") == ESP_OK, "Zweiter Titel starten"); settle();
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_PLAYING, 1);
+            ap = a_plays;
+            CHECK(irm_control_file_delete("/Edit/e1.mp3") == ESP_OK && !EXISTS("/Edit/e1.mp3"), "e1 (Eintrag davor) geloescht");
+            CHECK(S().count == 1 && S().index == 0 && S().player == IRM_PLAYER_PLAYING && a_plays == ap && strstr(S().uri, "Zweiter Titel.mp3"), "laufender Titel rutscht auf #0, spielt ohne Neustart weiter (%s)", S().name);
+
+            printf("  -- Umbenennen des laufenden Titels\n");
+            ap = a_plays;
+            CHECK(irm_control_file_rename("/Edit/Zweiter Titel.mp3", "B.mp3") == ESP_OK, "laufende Datei umbenannt");
+            settle();
+            snprintf(want, sizeof want, "%s/Edit/B.mp3", IRM_SD_MOUNT_POINT);
+            CHECK(EXISTS("/Edit/B.mp3") && !EXISTS("/Edit/Zweiter Titel.mp3") && !strcmp(a_uri, want) && a_plays == ap + 1 && a_active, "neuer Pfad abgespielt (Neustart), Pipeline vorher angehalten (%s)", a_uri);
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
+            CHECK(!strcmp(S().name, "B.mp3"), "Anzeigename aktualisiert (%s)", S().name);
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            ap = a_plays;
+            CHECK(irm_control_file_rename("/Edit/B.mp3", "b.mp3") == ESP_OK, "nur Gross-/Kleinschreibung (B -> b)");
+            settle();
+            CHECK(EXISTS("/Edit/b.mp3") && !EXISTS("/Edit/.irm_rename.tmp") && a_plays == ap + 1, "Umweg ueber Zwischennamen, keine Reste, Titel laeuft");
+            CHECK(irm_control_file_rename("/Edit/b.mp3", "b.mp3") == ESP_OK && a_plays == ap + 1, "gleicher Name: Nichts zu tun, kein Neustart");
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+
+            printf("  -- Aufnahme: laufende Aufnahmedatei ist tabu\n");
+            snprintf(d, sizeof d, "%s/recordings", IRM_SD_MOUNT_POINT); mkdir(d, 0755);
+            snprintf(p, sizeof p, "%s/rec.mp3", d); { FILE *f = fopen(p, "w"); if (f) { fputs("x", f); fclose(f); } }
+            rc_active = 1; rc_src = IRM_SOURCE_MEDIA; strcpy(rc_file, "rec.mp3");
+            CHECK(irm_control_file_delete("/recordings/rec.mp3") == ESP_ERR_NOT_SUPPORTED && irm_control_file_rename("/recordings/rec.mp3", "neu.mp3") == ESP_ERR_NOT_SUPPORTED && EXISTS("/recordings/rec.mp3"), "Aufnahmedatei: weder loeschen noch umbenennen");
+            rc_active = 0; rc_file[0] = 0; rc_src = -1;
+            CHECK(irm_control_file_rename("/recordings/rec.mp3", "Interview.mp3") == ESP_OK && EXISTS("/recordings/Interview.mp3"), "nach dem Stopp der Aufnahme geht es");
+            CHECK(irm_control_file_delete("/recordings/Interview.mp3") == ESP_OK && !EXISTS("/recordings/Interview.mp3"), "... und loeschen auch");
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_PLAYING, 0);
+
+            printf("  -- Loeschen des laufenden Titels\n");
+            snprintf(p, sizeof p, "%s/Edit/c.mp3", IRM_SD_MOUNT_POINT); { FILE *f = fopen(p, "w"); if (f) { fputs("x", f); fclose(f); } }
+            snprintf(p, sizeof p, "%s/Edit/d.mp3", IRM_SD_MOUNT_POINT); { FILE *f = fopen(p, "w"); if (f) { fputs("x", f); fclose(f); } }
+            CHECK(irm_control_play_path("/Edit/c.mp3") == ESP_OK, "Ordner /Edit: b, c, d; c laeuft"); settle();
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_PLAYING, 1);
+            ap = a_plays; int as = a_stops;
+            CHECK(irm_control_file_delete("/Edit/c.mp3") == ESP_OK && !EXISTS("/Edit/c.mp3"), "laufende Datei c geloescht");
+            settle();
+            snprintf(want, sizeof want, "%s/Edit/d.mp3", IRM_SD_MOUNT_POINT);
+            CHECK(a_stops > as && a_plays == ap + 1 && !strcmp(a_uri, want) && a_active, "Pipeline angehalten, naechster Titel d startet (%s)", a_uri);
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 1);
+            CHECK(S().count == 2, "Liste hat 2 Titel");
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            ap = a_plays;
+            CHECK(irm_control_file_delete("/Edit/d.mp3") == ESP_OK, "letzter Titel der Liste (d) geloescht");
+            settle();
+            snprintf(want, sizeof want, "%s/Edit/b.mp3", IRM_SD_MOUNT_POINT);
+            CHECK(!strcmp(a_uri, want) && a_plays == ap + 1, "springt zum Anfang der Liste: b (%s)", a_uri);
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
+
+            printf("  -- Pause bleibt erhalten, Zufall und leere Liste\n");
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            cmd(IRM_CMD_SHUFFLE, 1);
+            snprintf(p, sizeof p, "%s/Edit/f.mp3", IRM_SD_MOUNT_POINT); { FILE *f = fopen(p, "w"); if (f) { fputs("x", f); fclose(f); } }
+            CHECK(irm_control_play_path("/Edit/f.mp3") == ESP_OK, "mit Zufall: Ordner b, f; f laeuft"); settle();
+            audio_evt(IRM_AUDIO_EVT_RUNNING); settle();
+            CHECK(irm_control_file_delete("/Edit/f.mp3") == ESP_OK, "laufenden Titel f loeschen (Zufall an)"); settle();
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_CONNECTING, 0);
+            CHECK(strstr(S().uri, "/Edit/b.mp3") != NULL, "spielt b");
+            cmd(IRM_CMD_SHUFFLE, 0);
+            cmd(IRM_CMD_TOGGLE_PAUSE, 0);
+            EXPECT_STATE(IRM_SOURCE_MEDIA, IRM_PLAYER_PAUSED, 0);
+            ap = a_plays;
+            CHECK(irm_control_file_delete("/Edit/b.mp3") == ESP_OK && !EXISTS("/Edit/b.mp3"), "einzige Datei (pausiert) geloescht");
+            settle();
+            CHECK(S().count == 0 && S().index == -1 && S().player == IRM_PLAYER_IDLE && !a_active && a_plays == ap, "leere Liste: Stopp, keine Wiedergabe (count %d, idx %d)", S().count, S().index);
+            CHECK(irm_control_file_delete("/Edit/b.mp3") == ESP_ERR_NOT_FOUND, "erneutes Loeschen: NOT_FOUND");
+#undef EXISTS
+            snprintf(p, sizeof p, "rm -rf %s/Edit %s/recordings", IRM_SD_MOUNT_POINT, IRM_SD_MOUNT_POINT); if (system(p)) {}
+        }
 
         printf("== Dateibrowser: Listing (irm_control_browse)\n");
         irm_dl_req_t rq; char *js = NULL;

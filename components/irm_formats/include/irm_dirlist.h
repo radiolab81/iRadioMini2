@@ -57,6 +57,13 @@ bool irm_dirlist_scan_sorted(const char *abs_dir, const char *exts, irm_playlist
 /** {"path":"/a/b","total":n,"more":bool,"items":[{"n":"name","d":1},{"n":"x.mp3"}]}  malloc'd, NULL bei Speichermangel. */
 char *irm_dirlist_json(const char *rel_path, const irm_dl_entry_t *e, size_t n, size_t total, bool more);
 
+/**
+ * Neuer Dateiname fuers Umbenennen (nur der Name, kein Pfad): nicht leer, kuerzer als IRM_DL_NAME_MAX, gueltiges UTF-8, keine Steuerzeichen und keines der
+ * unter FAT/Windows verbotenen Zeichen  \ / : * ? " < > |, nicht mit '.' beginnend (waere versteckt), nicht mit '.' oder ' ' endend, und mit einer
+ * Endung aus `exts` (sonst verschwindet die Datei aus dem Mediaplayer).
+ */
+bool irm_filename_valid(const char *name, const char *exts);
+
 /** In place: gueltiges UTF-8 erzwingen (ungueltige Bytes -> '?', Steuerzeichen -> ' '). @return Laenge. */
 size_t irm_dirlist_utf8_clean(char *s);
 

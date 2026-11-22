@@ -67,6 +67,18 @@ bool irm_dirlist_ext_match(const char *name, const char *exts)
 
 /* ---------------------------------------------------------------- UTF-8 / JSON */
 
+bool irm_filename_valid(const char *name, const char *exts)
+{
+    if (!name || !*name) return false;
+    const size_t n = strlen(name);
+    if (n >= IRM_DL_NAME_MAX || name[0] == '.' || name[n - 1] == '.' || name[n - 1] == ' ') return false;
+    for (size_t i = 0; i < n; i++) if (strchr("\\/:*?\"<>|", name[i])) return false;
+    char t[IRM_DL_NAME_MAX];
+    memcpy(t, name, n + 1);
+    if (irm_dirlist_utf8_clean(t) != n || memcmp(t, name, n)) return false;     /* ungueltiges UTF-8 oder Steuerzeichen */
+    return irm_dirlist_ext_match(name, exts);
+}
+
 size_t irm_dirlist_utf8_clean(char *s)
 {
     unsigned char *p = (unsigned char *)s;

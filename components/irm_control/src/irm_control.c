@@ -11,6 +11,8 @@
 #include "irm_board.h"
 #include "irm_control.h"
 #include <sys/stat.h>
+#include <strings.h>
+#include <unistd.h>
 #include "irm_core.h"
 #include "irm_dirlist.h"
 #include "irm_files.h"
@@ -48,6 +50,11 @@ static struct {
     bool               dyn_valid;    /* "Direkteintrag": im Verzeichnis gewaehlter Server, steht hinter den Favoriten (virtueller Index = Anzahl Favoriten) */
     char               dyn_name[IRM_NAME_MAX_LEN], dyn_uri[IRM_URI_MAX_LEN];
     char               pending_path[IRM_DL_PATH_MAX + 1];   /* Ziel von IRM_CMD_MEDIA_PLAY_PATH (list_lock) */
+    /* Datei loeschen/umbenennen: Aufrufer (Web) -> Steuer-Task, mit Ergebnis. op_lock serialisiert die Aufrufer; Rest unter list_lock. */
+    SemaphoreHandle_t  op_lock;
+    char               op_path[IRM_DL_PATH_MAX + 1], op_name[IRM_DL_NAME_MAX];
+    uint32_t           op_seq, op_done;
+    esp_err_t          op_res;
     /* Mediaplayer: Zufallswiedergabe/Wiederholen (nur Steuer-Task). order = Abspielreihenfolge als Permutation der Indizes der Medien-Playlist,
      * order_pos = Position des laufenden Titels darin; order_n = 0: noch nicht (oder nicht mehr) passend aufgebaut. */
     bool               shuffle, loop;
@@ -350,6 +357,160 @@ esp_err_t irm_control_play_path(const char *rel_path)
     xSemaphoreGive(c.list_lock);
     return irm_cmd_post_id(IRM_CMD_MEDIA_PLAY_PATH, 0);
 }
+
+/* ---- Datei loeschen / umbenennen (laeuft im Steuer-Task: nur dort darf die laufende Datei angehalten und die Playlist geaendert werden) ---- */
+
+/* Index von abs in der Medien-Playlist, -1 wenn nicht enthalten */
+static int32_t media_find(const char *abs)
+{
+    int32_t found = -1;
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    const size_t n = irm_playlist_count(c.lists[IRM_SOURCE_MEDIA]);
+    for (size_t i = 0; i < n && found < 0; i++) if (!strcmp(irm_playlist_uri(c.lists[IRM_SOURCE_MEDIA], i), abs)) found = (int32_t)i;
+    xSemaphoreGive(c.list_lock);
+    return found;
+}
+
+/* true, wenn die Aufnahme gerade in diese Datei schreibt */
+static bool is_recording_file(const char *abs)
+{
+#if defined(CONFIG_IRM_REC_DIR)
+    irm_rec_info_t ri; irm_rec_info(&ri);
+    if (ri.active && ri.file[0]) {
+        char rec[IRM_PLAYLIST_URI_MAX + 1];
+        snprintf(rec, sizeof(rec), "%s/%s/%s", IRM_SD_MOUNT_POINT, CONFIG_IRM_REC_DIR, ri.file);
+        return !strcmp(rec, abs);
+    }
+#else
+    (void)abs;
+#endif
+    return false;
+}
+
+/* laeuft genau diese Datei im Mediaplayer? (dann muss sie vor dem Eingriff freigegeben werden) */
+static bool is_playing_file(const char *abs)
+{
+    if (c.source != IRM_SOURCE_MEDIA || c.index[IRM_SOURCE_MEDIA] < 0) return false;
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    const char *u = item_uri(IRM_SOURCE_MEDIA, (size_t)c.index[IRM_SOURCE_MEDIA]);
+    const bool r = u && !strcmp(u, abs);
+    xSemaphoreGive(c.list_lock);
+    return r;
+}
+
+/* Nach einem fehlgeschlagenen Eingriff die angehaltene Datei wieder starten */
+static void resume_after_fail(bool was_playing) { if (was_playing && c.want_play) start_current(); }
+
+static esp_err_t media_file_delete(const char *want)
+{
+    char rel[IRM_DL_PATH_MAX + 1], abs[IRM_PLAYLIST_URI_MAX + 1];
+    esp_err_t e = media_resolve(want, rel, sizeof(rel), abs, sizeof(abs));
+    if (e != ESP_OK) return e;
+    if (is_recording_file(abs)) return ESP_ERR_NOT_SUPPORTED;
+    const bool playing = is_playing_file(abs);
+    if (playing) stop_engines();                    /* Datei freigeben, sonst verweigert FAT das Loeschen */
+    int rc = unlink(abs);
+    for (int i = 0; rc != 0 && playing && i < 3; i++) { vTaskDelay(pdMS_TO_TICKS(100)); rc = unlink(abs); }   /* die Pipeline gibt die Datei u. U. erst kurz nach dem Stopp frei */
+    if (rc != 0) { ESP_LOGW(TAG, "loeschen fehlgeschlagen: %s", abs); resume_after_fail(playing); return ESP_FAIL; }
+    ESP_LOGI(TAG, "Datei geloescht: %s", rel);
+
+    int32_t cur = c.index[IRM_SOURCE_MEDIA];
+    const int32_t i = media_find(abs);
+    if (i >= 0) {
+        xSemaphoreTake(c.list_lock, portMAX_DELAY);
+        irm_playlist_remove(c.lists[IRM_SOURCE_MEDIA], (size_t)i);
+        xSemaphoreGive(c.list_lock);
+        if (i < cur) cur--;                         /* Eintraege davor: der laufende Titel rutscht einen Platz nach vorn */
+        c.index[IRM_SOURCE_MEDIA] = cur;
+        c.order_n = 0;                              /* Reihenfolge der Zufallswiedergabe gehoert zur alten Liste */
+    }
+    if (playing) select_index(cur);                 /* naechster Titel an dieser Stelle (bei leerer Liste: Stopp), startet bei want_play */
+    else if (i >= 0 && c.source == IRM_SOURCE_MEDIA) publish_item_keep();
+    return ESP_OK;
+}
+
+static esp_err_t media_file_rename(const char *want, const char *new_name)
+{
+    char rel[IRM_DL_PATH_MAX + 1], abs[IRM_PLAYLIST_URI_MAX + 1];
+    esp_err_t e = media_resolve(want, rel, sizeof(rel), abs, sizeof(abs));
+    if (e != ESP_OK) return e;
+    if (!irm_filename_valid(new_name, CONFIG_IRM_MEDIA_EXTENSIONS)) return ESP_ERR_INVALID_ARG;
+    if (is_recording_file(abs)) return ESP_ERR_NOT_SUPPORTED;
+    char dir[IRM_PLAYLIST_URI_MAX + 1], dst[IRM_PLAYLIST_URI_MAX + 1];
+    strlcpy(dir, abs, sizeof(dir));
+    char *slash = strrchr(dir, '/');                /* abs enthaelt mindestens "/sdcard/x" */
+    const char *old_name = slash + 1;
+    *slash = 0;
+    const int w = snprintf(dst, sizeof(dst), "%s/%s", dir, new_name);
+    if (w < 0 || (size_t)w >= sizeof(dst)) return ESP_ERR_INVALID_ARG;
+    if (!strcmp(old_name, new_name)) return ESP_OK;                         /* nichts zu tun */
+    const bool case_only = !strcasecmp(old_name, new_name);                 /* FAT ist nicht gross-/kleinschreibungsabhaengig: "a.mp3" -> "A.mp3" braucht einen Umweg */
+    struct stat st;
+    if (!case_only && stat(dst, &st) == 0) return ESP_ERR_INVALID_STATE;   /* Zielname existiert schon: nie ueberschreiben */
+
+    const bool playing = is_playing_file(abs);
+    if (playing) stop_engines();
+    int rc;
+    if (case_only) {
+        char tmp[IRM_PLAYLIST_URI_MAX + 1];
+        const int tw = snprintf(tmp, sizeof(tmp), "%s/.irm_rename.tmp", dir);
+        if (tw < 0 || (size_t)tw >= sizeof(tmp)) { resume_after_fail(playing); return ESP_ERR_INVALID_ARG; }
+        rc = rename(abs, tmp);
+        if (rc == 0 && (rc = rename(tmp, dst)) != 0) rename(tmp, abs);     /* zweiter Schritt gescheitert: Original zurueck */
+    } else {
+        rc = rename(abs, dst);
+        for (int i = 0; rc != 0 && playing && i < 3; i++) { vTaskDelay(pdMS_TO_TICKS(100)); rc = rename(abs, dst); }
+    }
+    if (rc != 0) { ESP_LOGW(TAG, "umbenennen fehlgeschlagen: %s -> %s", abs, dst); resume_after_fail(playing); return ESP_FAIL; }
+    ESP_LOGI(TAG, "Datei umbenannt: %s -> %s", old_name, new_name);
+
+    const int32_t i = media_find(abs);
+    if (i >= 0) {
+        xSemaphoreTake(c.list_lock, portMAX_DELAY);
+        irm_playlist_set(c.lists[IRM_SOURCE_MEDIA], (size_t)i, dst, new_name);
+        xSemaphoreGive(c.list_lock);
+    }
+    if (playing) select_index(c.index[IRM_SOURCE_MEDIA]);                   /* gleicher Titel, neuer Pfad: startet von vorn */
+    else if (i >= 0 && c.source == IRM_SOURCE_MEDIA) publish_item_keep();   /* Name in der Anzeige */
+    return ESP_OK;
+}
+
+static void handle_file_op(bool rename)
+{
+    char path[IRM_DL_PATH_MAX + 1], name[IRM_DL_NAME_MAX];
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    strlcpy(path, c.op_path, sizeof(path)); strlcpy(name, c.op_name, sizeof(name));
+    const uint32_t seq = c.op_seq;
+    xSemaphoreGive(c.list_lock);
+    const esp_err_t r = rename ? media_file_rename(path, name) : media_file_delete(path);
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    c.op_res = r; c.op_done = seq;
+    xSemaphoreGive(c.list_lock);
+}
+
+static esp_err_t file_op(irm_cmd_id_t id, const char *rel, const char *name)
+{
+    if (!rel || strlen(rel) > IRM_DL_PATH_MAX || (name && strlen(name) >= IRM_DL_NAME_MAX)) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(c.op_lock, portMAX_DELAY);       /* ein Eingriff nach dem anderen */
+    xSemaphoreTake(c.list_lock, portMAX_DELAY);
+    strlcpy(c.op_path, rel, sizeof(c.op_path)); strlcpy(c.op_name, name ? name : "", sizeof(c.op_name));
+    const uint32_t seq = ++c.op_seq;
+    xSemaphoreGive(c.list_lock);
+    esp_err_t res = irm_cmd_post_id(id, 0);
+    bool done = false;
+    for (int i = 0; res == ESP_OK && i < 600 && !done; i++) {   /* bis ca. 6 s auf den Steuer-Task warten */
+        xSemaphoreTake(c.list_lock, portMAX_DELAY);
+        done = c.op_done == seq; if (done) res = c.op_res;
+        xSemaphoreGive(c.list_lock);
+        if (!done) vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (res == ESP_OK && !done) res = ESP_ERR_TIMEOUT;
+    xSemaphoreGive(c.op_lock);
+    return res;
+}
+
+esp_err_t irm_control_file_delete(const char *rel_path) { return file_op(IRM_CMD_MEDIA_DELETE, rel_path, NULL); }
+esp_err_t irm_control_file_rename(const char *rel_path, const char *new_name) { return new_name ? file_op(IRM_CMD_MEDIA_RENAME, rel_path, new_name) : ESP_ERR_INVALID_ARG; }
 
 esp_err_t irm_control_browse(const irm_dl_req_t *r, char **json)
 {
@@ -655,6 +816,8 @@ static void handle(const irm_cmd_t *m)
         if (media_load_all()) { c.source = IRM_SOURCE_MEDIA; select_index(0); }
         break;
     case IRM_CMD_MEDIA_PLAY_PATH: media_play_path(); break;
+    case IRM_CMD_MEDIA_DELETE: handle_file_op(false); break;
+    case IRM_CMD_MEDIA_RENAME: handle_file_op(true); break;
     case IRM_CMD_SHUFFLE:
         c.shuffle = mode_value(m->value, c.shuffle);
         c.order_n = 0;                            /* beim naechsten Weiter neu mischen, der laufende Titel zuerst */
@@ -772,10 +935,11 @@ static void task(void *arg)
 esp_err_t irm_control_start(void)
 {
     c.list_lock = xSemaphoreCreateMutex();
+    c.op_lock = xSemaphoreCreateMutex();
     for (int i = 0; i < IRM_SOURCE_COUNT; i++) c.index[i] = -1;
     c.want_play = true; c.retry_s = 1;
     const esp_timer_create_args_t ta = { .callback = retry_cb, .name = "irm_retry" };
-    if (!c.list_lock || esp_timer_create(&ta, &c.retry_timer) != ESP_OK) return ESP_ERR_NO_MEM;
+    if (!c.list_lock || !c.op_lock || esp_timer_create(&ta, &c.retry_timer) != ESP_OK) return ESP_ERR_NO_MEM;
 
     irm_settings_t cfg; irm_settings_load(&cfg);
     c.volume = cfg.volume;
