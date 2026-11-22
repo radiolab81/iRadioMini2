@@ -257,6 +257,42 @@ static esp_err_t h_files_play(httpd_req_t *req)
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
+/* Antwort fuer Datei loeschen/umbenennen */
+static esp_err_t file_op_reply(httpd_req_t *req, esp_err_t e)
+{
+    switch (e) {
+    case ESP_OK: return httpd_resp_sendstr(req, "{\"ok\":true}");
+    case ESP_ERR_INVALID_ARG: return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "ungueltiger Pfad oder Name");
+    case ESP_ERR_NOT_FOUND: return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Datei nicht gefunden");
+    case ESP_ERR_INVALID_STATE: httpd_resp_set_status(req, "409 Conflict"); return httpd_resp_sendstr(req, "Es gibt bereits eine Datei mit diesem Namen");
+    case ESP_ERR_NOT_SUPPORTED: httpd_resp_set_status(req, "409 Conflict"); return httpd_resp_sendstr(req, "Die Datei wird gerade aufgenommen");
+    case ESP_ERR_TIMEOUT: httpd_resp_set_status(req, "503 Service Unavailable"); return httpd_resp_sendstr(req, "Steuerung antwortet nicht");
+    default: return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Dateisystemfehler");
+    }
+}
+
+/* POST {"path":"/Ordner/titel.mp3"} -> Datei von der SD-Karte loeschen (laeuft sie gerade, spielt der naechste Titel) */
+static esp_err_t h_files_delete(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    cJSON *b = read_json(req);
+    const cJSON *p = b ? cJSON_GetObjectItemCaseSensitive(b, "path") : NULL;
+    const esp_err_t e = cJSON_IsString(p) ? irm_control_file_delete(p->valuestring) : ESP_ERR_INVALID_ARG;
+    cJSON_Delete(b);
+    return file_op_reply(req, e);
+}
+
+/* POST {"path":"/Ordner/titel.mp3","name":"neu.mp3"} -> Datei im selben Ordner umbenennen (nur der Name, die Mediaendung muss bleiben) */
+static esp_err_t h_files_rename(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    cJSON *b = read_json(req);
+    const cJSON *p = b ? cJSON_GetObjectItemCaseSensitive(b, "path") : NULL, *n = b ? cJSON_GetObjectItemCaseSensitive(b, "name") : NULL;
+    const esp_err_t e = (cJSON_IsString(p) && cJSON_IsString(n)) ? irm_control_file_rename(p->valuestring, n->valuestring) : ESP_ERR_INVALID_ARG;
+    cJSON_Delete(b);
+    return file_op_reply(req, e);
+}
+
 #if CONFIG_IRM_DIR_ENABLE
 /* ---- Serververzeichnis ---- */
 static esp_err_t send_json_status(httpd_req_t *req, const char *status, cJSON *j)
@@ -381,7 +417,7 @@ esp_err_t irm_web_start(void)
         snprintf(s_auth, sizeof(s_auth), "Basic %s", enc);
     }
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 16;   /* Standard 8; es sind 5 Basis-Endpunkte + 2 fuer den Dateibrowser + 5 fuer das Serververzeichnis */
+    cfg.max_uri_handlers = 20;   /* Standard 8; es sind 5 Basis-Endpunkte + 4 fuer den Dateibrowser (Liste, Abspielen, Loeschen, Umbenennen) + 5 fuer das Serververzeichnis */
     cfg.server_port = CONFIG_IRM_WEB_PORT;
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;
@@ -395,6 +431,8 @@ esp_err_t irm_web_start(void)
         { .uri = "/api/eq",       .method = HTTP_POST, .handler = h_eq },
         { .uri = "/api/files",      .method = HTTP_GET,  .handler = h_files },
         { .uri = "/api/files/play", .method = HTTP_POST, .handler = h_files_play },
+        { .uri = "/api/files/delete", .method = HTTP_POST, .handler = h_files_delete },
+        { .uri = "/api/files/rename", .method = HTTP_POST, .handler = h_files_rename },
 #if CONFIG_IRM_DIR_ENABLE
         { .uri = "/api/dir",           .method = HTTP_GET,  .handler = h_dir_info },
         { .uri = "/api/dir/list",      .method = HTTP_GET,  .handler = h_dir_list },

@@ -678,13 +678,25 @@ function fbRender() {
   }
 
   // Zeilen: "eine Ebene höher", Ordner, Dateien
-  const mk = (ic, t, cls, fn, p) => {
+  const mk = (ic, t, cls, fn, p, acts) => {
     const l = document.createElement('li');
     l.className = cls;
     if (p) l.dataset.p = p;
-    l.append(el('span', ic), el('span', t, 'n'));
+    l.append(el('span', ic), el('span', t, 'n'), ...(acts || []));
     l.onclick = fn;
     return l;
+  };
+
+  // Umbenennen / Löschen je Datei; der Klick darf nicht zugleich die Datei abspielen
+  const act = (sym, tip, fn) => {
+    const b = el('button', sym, 'del');
+    b.title = tip;
+    b.setAttribute('aria-label', tip);
+    b.onclick = ev => {
+      ev.stopPropagation();
+      fn();
+    };
+    return b;
   };
   const rows = [];
   if (B.path !== '/' && B.page === 0) rows.push(mk('⬆', '‥ eine Ebene höher', 'up', () => go(dirname(B.path))));
@@ -692,7 +704,8 @@ function fbRender() {
     const p = joinp(B.path, x.n);
     rows.push(x.d
       ? mk('📁', x.n, '', () => go(p))
-      : mk('♪', x.n, p === B.cur ? 'cur' : '', () => playFile(p), p));
+      : mk('♪', x.n, p === B.cur ? 'cur' : '', () => playFile(p), p,
+           [act('✎', 'Datei umbenennen', () => renFile(p, x.n)), act('✕', 'Datei löschen', () => delFile(p, x.n))]));
   }
   if (!B.items.length) rows.push(el('li', 'Keine Ordner oder abspielbaren Dateien hier', 'mut'));
   $('flist').replaceChildren(...rows);
@@ -712,6 +725,39 @@ async function playFile(p) {
   }
   $('fmsg').textContent = r.ok ? '' : 'Datei kann nicht abgespielt werden';
   if (r.ok) setTimeout(poll, 500);
+}
+
+// Datei löschen / umbenennen: Antwort des Geräts (Klartext) in der Meldezeile anzeigen, danach die Seite neu laden
+async function fileOp(url, body) {
+  let r;
+  try {
+    r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch (e) {
+    $('fmsg').textContent = 'keine Verbindung';
+    return false;
+  }
+  if (!r.ok) $('fmsg').textContent = (await r.text()).trim() || 'Fehler';
+  return r.ok;
+}
+
+async function delFile(p, n) {
+  if (!confirm(`Datei „${n}“ unwiderruflich von der SD-Karte löschen?`)) return;
+  if (!await fileOp('/api/files/delete', { path: p })) return;
+  await browse(B.path, B.items.length === 1 && B.page > 0 ? B.page - 1 : B.page);   // letzte Datei der Seite weg: eine Seite zurück
+  $('fmsg').textContent = `„${n}“ gelöscht`;                                          // nach dem Laden (browse leert die Meldung)
+  setTimeout(poll, 500);
+}
+
+async function renFile(p, n) {
+  const v = prompt('Neuer Dateiname:', n);
+  let nn = v === null ? '' : v.trim();
+  if (!nn || nn === n) return;
+  const ext = (n.match(/\.[^./]*$/) || [''])[0];
+  if (!/\.[^./]*$/.test(nn)) nn += ext;                  // ohne Endung angegeben: bisherige beibehalten
+  if (!await fileOp('/api/files/rename', { path: p, name: nn })) return;
+  await browse(B.path, B.page);
+  $('fmsg').textContent = `Umbenannt in „${nn}“`;
+  setTimeout(poll, 500);
 }
 
 // Zufall/Wiederholen: gewünschten Zustand explizit senden (kein blindes Umschalten, falls zwischendurch jemand anderes umgestellt hat)

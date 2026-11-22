@@ -11,12 +11,20 @@
   };
   const srv = { shuffle: false, loop: false, source: 'radio', path: '', count: 3, index: 0, posts: [], gets: [], playFail: false, net: { peer: '', port: 4010, rate: 48000, underruns: 0 } };
   window.__srv = srv;
-  const reply = (o, status = 200) => Promise.resolve({ ok: status < 300, status, json: async () => o });
+  const reply = (o, status = 200, txt = '') => Promise.resolve({ ok: status < 300, status, json: async () => o, text: async () => txt });
   window.fetch = (url, opt) => {
     const u = new URL(url, 'http://x/'), p = u.pathname;
     if (opt && opt.method === 'POST') {
       const body = JSON.parse(opt.body); srv.posts.push({ p, body });
       if (p === '/api/files/play') { if (srv.playFail) return reply({}, 404); srv.path = body.path; return reply({ ok: true }); }
+      if (p === '/api/files/delete' || p === '/api/files/rename') {
+        if (srv.opFail) return reply({}, srv.opFail.status, srv.opFail.txt);
+        const i = body.path.lastIndexOf('/'), dir = i ? body.path.slice(0, i) : '/', nm = body.path.slice(i + 1), list = fsys[dir];
+        const k = list ? list.findIndex(x => x.n === nm && !x.d) : -1;
+        if (k < 0) return reply({}, 404, 'Datei nicht gefunden');
+        if (p === '/api/files/delete') list.splice(k, 1); else list[k].n = body.name;
+        return reply({ ok: true });
+      }
       return reply({ ok: true });
     }
     srv.gets.push(u.pathname + u.search);
@@ -102,6 +110,44 @@
     srv.shuffle = false; srv.loop = false; await window.poll(); await sleep(50);
     check($('fshuf').getAttribute('aria-pressed') === 'false' && $('floop').getAttribute('aria-pressed') === 'false', 'Status aus -> Knoepfe aus (Aenderung von anderer Stelle wird uebernommen)');
 
+    // ---- Datei loeschen / umbenennen ----
+    go('/Rock'); await sleep(100);
+    const btns = l => [...l.querySelectorAll('button')].map(b => b.textContent);
+    check(JSON.stringify(btns(rows()[1])) === '[]' && JSON.stringify(btns(rows()[2])) === '["✎","✕"]', 'Dateizeile: Knoepfe ✎ und ✕, Ordnerzeile: keine');
+    srv.posts.length = 0;
+    let asked = ''; window.confirm = m => { asked = m; return false; };
+    rows()[2].querySelectorAll('button')[1].click(); await sleep(60);
+    check(asked.includes('a.mp3') && srv.posts.length === 0, 'Loeschen: Rueckfrage mit Dateiname, bei "Abbrechen" kein POST');
+    window.confirm = () => true;
+    rows()[2].querySelectorAll('button')[1].click(); await sleep(150);
+    check(srv.posts.length === 1 && srv.posts[0].p === '/api/files/delete' && srv.posts[0].body.path === '/Rock/a.mp3', 'Loeschen: POST /api/files/delete {path:"/Rock/a.mp3"}, kein Abspielen: ' + JSON.stringify(srv.posts));
+    check(!names().includes('a.mp3') && $('fmsg').textContent.includes('gelöscht'), 'Liste neu geladen ohne die Datei, Meldung: ' + $('fmsg').textContent);
+    srv.opFail = { status: 404, txt: 'Datei nicht gefunden' };
+    rows()[rows().length - 1].querySelectorAll('button')[1].click(); await sleep(150);
+    check($('fmsg').textContent === 'Datei nicht gefunden', 'Loeschen fehlgeschlagen: Meldung des Geraets: ' + $('fmsg').textContent);
+    srv.opFail = null;
+
+    go('/Rock/Live'); await sleep(100);
+    srv.posts.length = 0;
+    let def = ''; window.prompt = (m, v) => { def = v; return null; };
+    rows()[1].querySelectorAll('button')[0].click(); await sleep(60);
+    check(def === 'l1.mp3' && srv.posts.length === 0, 'Umbenennen: Eingabefeld mit aktuellem Namen vorbelegt, Abbrechen sendet nichts');
+    window.prompt = () => '  eins  ';
+    rows()[1].querySelectorAll('button')[0].click(); await sleep(150);
+    check(srv.posts.length === 1 && srv.posts[0].p === '/api/files/rename' && srv.posts[0].body.path === '/Rock/Live/l1.mp3' && srv.posts[0].body.name === 'eins.mp3', 'Umbenennen ohne Endung: bisherige .mp3 wird angehaengt: ' + JSON.stringify(srv.posts));
+    check(names().includes('eins.mp3') && !names().includes('l1.mp3') && $('fmsg').textContent.includes('eins.mp3'), 'Liste zeigt den neuen Namen');
+    srv.posts.length = 0; window.prompt = () => 'eins.mp3';
+    rows()[1].querySelectorAll('button')[0].click(); await sleep(60);
+    check(srv.posts.length === 0, 'unveraenderter Name: kein POST');
+    window.prompt = () => 'zwei.flac'; srv.opFail = { status: 409, txt: 'Es gibt bereits eine Datei mit diesem Namen' };
+    rows()[1].querySelectorAll('button')[0].click(); await sleep(150);
+    check(srv.posts[0].body.name === 'zwei.flac' && $('fmsg').textContent.includes('bereits'), 'Name vergeben (409): Meldung des Geraets, andere Endung bleibt wie eingegeben: ' + $('fmsg').textContent);
+    srv.opFail = null;
+    window.prompt = () => '<b>x</b>';
+    rows()[1].querySelectorAll('button')[0].click(); await sleep(150);
+    check(!document.querySelector('#flist b') && names().includes('<b>x</b>.mp3'), 'Dateiname mit HTML nur als Text');
+
+    fsys['/Rock/Live'] = [{ n: 'l1.mp3' }]; fsys['/Rock'].splice(1, 0, { n: 'a.mp3' });   // Ausgangszustand fuer die folgenden Pruefungen
     go('/Rock/Live'); await sleep(100);
     srv.path = '/Rock/Live/l1.mp3'; await window.poll(); await sleep(50);
     check(rows().find(l => l.dataset.p === '/Rock/Live/l1.mp3').classList.contains('cur'), 'Markierung folgt der laufenden Datei beim naechsten Status');
