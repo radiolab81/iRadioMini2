@@ -1,3 +1,13 @@
+# iRadioMini2 – Dateien löschen und umbenennen (Mediaplayer)
+
+* **Web-UI:** Im Dateibrowser steht hinter jeder Datei ein ✎ (umbenennen) und ein ✕ (löschen, mit Rückfrage). Beim Umbenennen wird die bisherige Endung ergänzt, wenn keine eingegeben wird. Besonders praktisch für die Aufnahmen im Ordner `recordings`.
+* **API:** `POST /api/files/delete {"path"}` und `POST /api/files/rename {"path","name"}`, dazu `irm_control_file_delete()` / `irm_control_file_rename()`.
+* **Sicherheit:** nur reguläre Dateien mit Mediaendung (`IRM_MEDIA_EXTENSIONS`), Pfade wie beim Abspielen geprüft (kein `..`), Ordner werden nie angefasst. Neue Namen müssen gültig sein (`irm_filename_valid`: keine `/ \ : * ? " < > |`, keine Steuerzeichen, kein führender Punkt, gültiges UTF-8, Mediaendung). Eine vorhandene Datei wird nie überschrieben (`409`). Die Datei, in die gerade aufgenommen wird, ist gesperrt.
+* **Laufende Datei:** Beide Aktionen laufen im Steuer-Task. Die laufende Datei wird zuerst angehalten (sonst verweigert FAT den Zugriff). Nach dem Umbenennen startet sie von vorn, nach dem Löschen spielt der nächste Titel (bei leerer Liste Stopp, pausiert bleibt pausiert). Die Wiedergabeliste (auch „Alle Titel“) und die Zufallsreihenfolge werden angepasst; Groß-/Kleinschreibung („a.mp3“ → „A.mp3“) funktioniert über einen Zwischennamen.
+* **Tests:** `irm_filename_valid`/`irm_playlist_set` (test_dirlist), `irm_control`-Host-Test (Fehlerfälle, laufender/nicht laufender Titel, Zufall, leere Liste, Aufnahmedatei), Web-UI-Test (Knöpfe, Rückfrage, Fehlermeldungen, kein XSS).
+
+---
+
 # iRadioMini2 – Mediaplayer: Zufall und Titel wiederholen
 
 * **Zufallswiedergabe** (Quelle Dateien): spielt die Titel der aktuellen Wiedergabeliste (= Ordner der gewählten Datei bzw. „Alle Titel“) in gemischter Reihenfolge. Jeder Titel kommt einmal pro Runde, danach wird neu gemischt (der letzte Titel nicht gleich nochmal). Weiter/Zurück folgen der gemischten Reihenfolge; Direktwahl eines Titels beginnt eine neue Runde ab diesem Titel.

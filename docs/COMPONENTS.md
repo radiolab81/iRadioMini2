@@ -35,7 +35,7 @@ Kconfig: Board (AudioKit/eigenes), Codec (ES8388/ES8311/Dummy), Pins, Ausgaberat
 `irm_audio_init(codec, sink, …)/play/stop/pause/resume/set_volume/set_eq` auf Basis von ESP-GMF. Ausgabe: Codec-IO oder eigenes Sink-IO (`irm_io_sink`). Ereignisse (`IRM_AUDIO_EVT_*`) per Callback.
 
 ## irm_control
-Zustandsautomat/Controller (einzige Task, die Audio steuert): Quellenwahl (Radio/Dateien/KiwiSDR/Netzwerk, reihum), Playlist-Navigation, Mediaplayer-Modi Zufall (gemischte Reihenfolge im aktuellen Ordner) und Titel wiederholen (`IRM_CMD_SHUFFLE/LOOP`), Aufnahme-Steuerung, Retry-Backoff,
+Zustandsautomat/Controller (einzige Task, die Audio steuert): Quellenwahl (Radio/Dateien/KiwiSDR/Netzwerk, reihum), Playlist-Navigation, Mediaplayer-Modi Zufall (gemischte Reihenfolge im aktuellen Ordner) und Titel wiederholen (`IRM_CMD_SHUFFLE/LOOP`), Aufnahme-Steuerung, Dateien löschen/umbenennen (`irm_control_file_delete/_rename`, läuft im Steuer-Task, hält die laufende Datei an und pflegt die Playlist), Retry-Backoff,
 verzögertes Persistieren; `irm_control_item_count/irm_control_item` für Listenzugriff (z. B. Web).
 
 ## irm_rec
@@ -57,9 +57,9 @@ Anzeige: in der Quelle Dateien zeigen die Text-Backends `Z`/`L` für Zufall/Wied
 `irm_disp_lvgl` (siehe `docs/LVGL.md`). Textaufbereitung `irm_view_*`.
 
 ## irm_web
-REST-API + Web-UI (siehe README). Optional HTTP-Basic-Auth (`IRM_WEB_PASSWORD`). Kommandos u. a. `shuffle`/`loop` (Mediaplayer, `value` 1/0, ohne Wert umschalten), `rec_toggle`, `kiwi_*`; Status enthält `shuffle`/`loop`.
+REST-API + Web-UI (siehe README). Optional HTTP-Basic-Auth (`IRM_WEB_PASSWORD`). Dateibrowser-Endpunkte `GET /api/files`, `POST /api/files/play|delete|rename`. Kommandos u. a. `shuffle`/`loop` (Mediaplayer, `value` 1/0, ohne Wert umschalten), `rec_toggle`, `kiwi_*`; Status enthält `shuffle`/`loop`.
 
-**Dateibrowser (Quelle „Dateien“):** Das Web-UI zeigt im Modus Dateien statt der flachen Liste einen Ordnerbaum der SD-Karte (Breadcrumb, „‥“, Ordner/Dateien antippbar, laufende Datei hervorgehoben, Seiten mit ‹ ›). Ein Klick auf eine Datei startet sie; die Wiedergabeliste besteht dann aus den Dateien **dieses Ordners** (alphabetisch, nicht rekursiv), „Weiter/Zurück“ und das Titelende folgen darin – auch an Gerätetasten und Display. **Alle Titel** stellt die bisherige rekursive Liste der ganzen SD-Karte wieder her (das ist auch die Liste beim Wechsel zur Quelle Dateien). Pfade sind relativ zur SD-Wurzel; `..`, `\\` und Steuerzeichen werden abgelehnt (`irm_path_normalize`), Namen ab 100 Bytes und versteckte Einträge (`.xyz`) erscheinen nicht, es werden nur Dateien mit den Endungen aus `IRM_MEDIA_EXTENSIONS` gezeigt. Ordner mit mehr als `IRM_MAX_MEDIA_FILES` Dateien: die Datei spielt dann allein, solange sie nicht unter den ersten `IRM_MAX_MEDIA_FILES` (alphabetisch) liegt.
+**Dateibrowser (Quelle „Dateien“):** Das Web-UI zeigt im Modus Dateien statt der flachen Liste einen Ordnerbaum der SD-Karte (Breadcrumb, „‥“, Ordner/Dateien antippbar, laufende Datei hervorgehoben, Seiten mit ‹ ›). Hinter jeder Datei stehen ✎ (umbenennen) und ✕ (löschen, mit Rückfrage), siehe `RELEASE_NOTES.md`. Ein Klick auf eine Datei startet sie; die Wiedergabeliste besteht dann aus den Dateien **dieses Ordners** (alphabetisch, nicht rekursiv), „Weiter/Zurück“ und das Titelende folgen darin – auch an Gerätetasten und Display. **Alle Titel** stellt die bisherige rekursive Liste der ganzen SD-Karte wieder her (das ist auch die Liste beim Wechsel zur Quelle Dateien). Pfade sind relativ zur SD-Wurzel; `..`, `\\` und Steuerzeichen werden abgelehnt (`irm_path_normalize`), Namen ab 100 Bytes und versteckte Einträge (`.xyz`) erscheinen nicht, es werden nur Dateien mit den Endungen aus `IRM_MEDIA_EXTENSIONS` gezeigt. Ordner mit mehr als `IRM_MAX_MEDIA_FILES` Dateien: die Datei spielt dann allein, solange sie nicht unter den ersten `IRM_MAX_MEDIA_FILES` (alphabetisch) liegt.
 
 ## irm_tx
 AM-Träger (AD9835/AD9832/AD9850/LEDC) und inet2RF (siehe `docs/RF-TX.md`).
